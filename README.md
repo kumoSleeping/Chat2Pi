@@ -94,7 +94,7 @@ npm pack
 把生成的 `chat2pi-*.tgz` 和该设备专属的配置文件传到新电脑，**不要复制整个 `.local/`**。新电脑安装 Node.js 后：
 
 ```sh
-npm install -g /path/to/chat2pi-0.2.0.tgz
+npm install -g /path/to/chat2pi-0.2.1.tgz
 chmod 600 /path/to/second-computer.json  # macOS/Linux
 chat2pi agent --config /path/to/second-computer.json
 ```
@@ -102,6 +102,8 @@ chat2pi agent --config /path/to/second-computer.json
 安装 npm 包需要联网下载依赖。客户端启动后自动上线，断线自动重连，但不会重放工具调用。不需要在 ChatGPT 添加第二个插件，也不需要再创建隧道。
 
 同一个 `device_id` 只能有一个在线连接，重复连接会被拒绝。移除设备：从网关配置的 `devices` 中删除它，然后重启网关。
+
+Windows 安装、显式代理、TUN 排查和其他用户的部署方式见 [网络与 Windows 指南](docs/NETWORK-AND-WINDOWS.md)。
 
 ## 工具
 

@@ -23,12 +23,15 @@ const factories = {
   grep: sdk.createGrepTool,
   bash: sdk.createBashTool,
 };
-export function makeTools(workspace: string) {
+export function makeTools(workspace: string, shellPath?: string) {
   const result = new Map<string, any>();
   for (const name of toolNames) {
     if (typeof factories[name] !== "function")
       throw new Error(`Pi ${piVersion} incompatible: missing ${name} factory`);
-    const tool = factories[name](workspace);
+    const tool =
+      name === "bash" && shellPath
+        ? sdk.createBashTool(workspace, { shellPath })
+        : factories[name](workspace);
     if (
       typeof tool.execute !== "function" ||
       !tool.parameters ||
@@ -86,7 +89,7 @@ export function checkPath(workspace: string, value: string): string {
   return resolved;
 }
 export function executor(device: Device) {
-  const tools = makeTools(realpathSync(device.workspace));
+  const tools = makeTools(realpathSync(device.workspace), device.shell_path);
   const ajv = new Ajv({ strict: false, allErrors: true });
   const validators = new Map(
     [...tools].map(([name, t]) => [name, ajv.compile(t.parameters)]),

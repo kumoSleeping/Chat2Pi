@@ -29,6 +29,7 @@ const device = z
     // Workspace mode checks file paths and does not permit arbitrary shell commands.
     access: z.enum(["workspace", "unrestricted"]).default("workspace"),
     timeout_seconds: z.number().int().min(1).max(300).default(60),
+    shell_path: z.string().min(1).optional(),
   })
   .strict()
   .refine(
@@ -39,6 +40,19 @@ export const agentSchema = z
   .object({
     gateway_url: z.string().url(),
     device_token: secret,
+    proxy_url: z
+      .string()
+      .url()
+      .refine((value) => {
+        const u = new URL(value);
+        return (
+          ["http:", "https:"].includes(u.protocol) &&
+          u.pathname === "/" &&
+          !u.search &&
+          !u.hash
+        );
+      }, "proxy_url must be an HTTP(S) proxy origin")
+      .optional(),
     device,
   })
   .strict();

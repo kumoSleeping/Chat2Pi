@@ -1,4 +1,5 @@
 import { WebSocket } from "ws";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import { z } from "zod";
 import { Runner } from "./runner.js";
 import { makeTools, piVersion } from "./pi.js";
@@ -13,7 +14,10 @@ const callSchema = z
   })
   .strict();
 export function startAgent(config: AgentConfig) {
-  makeTools(config.device.workspace);
+  makeTools(config.device.workspace, config.device.shell_path);
+  const proxy = config.proxy_url
+    ? new HttpsProxyAgent(config.proxy_url)
+    : undefined;
   const url = requireSecureUrl(config.gateway_url);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = "/agent";
@@ -25,6 +29,7 @@ export function startAgent(config: AgentConfig) {
   function connect() {
     if (stopped) return;
     ws = new WebSocket(url, {
+      agent: proxy,
       headers: {
         Authorization: `Bearer ${config.device_token}`,
         "X-Device-Id": config.device.device_id,
@@ -118,6 +123,7 @@ export function startAgent(config: AgentConfig) {
       clearTimeout(reconnect);
       runner.close();
       ws?.terminate();
+      proxy?.destroy();
     },
   };
 }
