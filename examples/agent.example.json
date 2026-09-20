@@ -1,0 +1,11 @@
+{
+  "gateway_url": "https://tools.example.com",
+  "device_token": "GENERATE_A_UNIQUE_TOKEN_WITH_ADD_DEVICE",
+  "device": {
+    "device_id": "second-computer",
+    "workspace": "/absolute/path/on/this/computer",
+    "tools": ["read", "ls", "find", "grep"],
+    "access": "workspace",
+    "timeout_seconds": 60
+  }
+}

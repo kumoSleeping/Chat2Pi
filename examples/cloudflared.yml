@@ -1,0 +1,11 @@
+# Only the gateway computer needs cloudflared. Replace these placeholders.
+tunnel: YOUR_TUNNEL_ID
+credentials-file: /absolute/path/to/YOUR_TUNNEL_ID.json
+metrics: 127.0.0.1:28787
+no-autoupdate: true
+ingress:
+  - hostname: tools.example.com
+    service: http://127.0.0.1:8787
+    originRequest:
+      httpHostHeader: 127.0.0.1
+  - service: http_status:404
