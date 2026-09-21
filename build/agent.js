@@ -2,6 +2,7 @@ import { WebSocket } from "ws";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { z } from "zod";
 import { Runner } from "./runner.js";
+import { log, preview, argumentPreview } from "./log.js";
 import { makeTools, piVersion } from "./pi.js";
 import { requireSecureUrl } from "./config.js";
 const callSchema = z
@@ -67,22 +68,25 @@ export function startAgent(config) {
                 return;
             }
             let requestId;
+            let operation = config.device.device_id;
+            const startedAt = performance.now();
+            const elapsed = () => `${((performance.now() - startedAt) / 1000).toFixed(2)}s`;
             try {
                 const message = JSON.parse(raw.toString());
                 if (message.type === "ready" &&
                     message.device_id === config.device.device_id &&
                     message.account_id === config.account_id) {
                     delay = 1000;
-                    console.log(`Device online: ${config.device.device_id}${config.account_id ? ` (account: ${config.account_id})` : ""}`);
+                    log("OK", `Device online: ${config.device.device_id}${config.account_id ? ` (account: ${config.account_id})` : ""} workspace=${preview(config.device.workspace, 240)} timeout=${config.device.timeout_seconds}s tools=${config.device.tools.join(",")}`);
                     return;
                 }
                 const call = callSchema.parse(message);
                 requestId = call.request_id;
                 if (call.account_id !== config.account_id)
                     throw new Error("Wrong account; refused before execution");
-                console.log(`Tool started: ${config.device.device_id}/${call.name}`);
+                operation = `${config.account_id ?? "local"}/${config.device.device_id}/${call.name} #${requestId.slice(0, 8)}`;
+                log("START", `${operation} cwd=${preview(config.device.workspace, 240)} timeout=${config.device.timeout_seconds}s | ${argumentPreview(call.arguments)}`);
                 const result = await runner.call(call.device_id, call.name, call.arguments);
-                console.log(`Tool finished: ${config.device.device_id}/${call.name}${result.isError ? " (error)" : ""}`);
                 const payload = JSON.stringify({
                     type: "result",
                     request_id: requestId,
@@ -90,15 +94,24 @@ export function startAgent(config) {
                 });
                 if (Buffer.byteLength(payload) > 3 * 1024 * 1024)
                     throw new Error("Result too large; operation may have completed. Use smaller reads.");
-                if (connection.readyState === WebSocket.OPEN)
+                if (connection.readyState === WebSocket.OPEN) {
                     connection.send(payload);
+                    const detail = result.isError
+                        ? preview(result.content?.find((item) => item.type === "text")
+                            ?.text ?? "Tool returned an error", 300)
+                        : `result=${Buffer.byteLength(payload)}B`;
+                    log(result.isError ? "ERROR" : "OK", `${operation} duration=${elapsed()} | ${detail}`);
+                }
+                else {
+                    log("WARN", `${operation} duration=${elapsed()} | Completed but connection closed; result not sent`);
+                }
             }
             catch (error) {
                 if (!requestId) {
                     connection.close(1008, "Invalid call");
                     return;
                 }
-                console.error(`Tool failed: ${config.device.device_id} (request ${requestId})`);
+                log("ERROR", `${operation} duration=${elapsed()} | ${preview(error instanceof Error ? error.message : "Tool failed", 500)}`);
                 if (connection.readyState === WebSocket.OPEN)
                     connection.send(JSON.stringify({
                         type: "result",
@@ -110,14 +123,14 @@ export function startAgent(config) {
             }
         });
         connection.on("error", (error) => {
-            console.error(`Device ${config.device.device_id}: connection failed (${error.code ?? "WebSocket handshake/network error"}); check network, server and device credentials.`);
+            log("ERROR", `Device ${config.device.device_id}: connection failed (${error.code ?? "WebSocket handshake/network error"}); check network, server and device credentials.`);
         });
-        connection.on("close", () => {
+        connection.on("close", (code, reason) => {
             clearTimeout(heartbeat);
             clearInterval(keepalive);
             runner.close();
             if (!stopped) {
-                console.log("Connection lost; reconnecting (operations are never replayed).");
+                log("WARN", `Device ${config.device.device_id}: connection lost code=${code} reason=${preview(reason.toString() || "none")} reconnect≈${(delay / 1000).toFixed(1)}s (operations are never replayed).`);
                 reconnect = setTimeout(connect, delay + Math.random() * 500);
                 delay = Math.min(delay * 2, 30_000);
             }

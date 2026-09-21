@@ -28,7 +28,7 @@ export const deviceSchema = z
     tools: z.array(z.enum(toolNames)).min(1),
     // Workspace mode checks file paths and does not permit arbitrary shell commands.
     access: z.enum(["workspace", "unrestricted"]).default("workspace"),
-    timeout_seconds: z.number().int().min(1).max(300).default(60),
+    timeout_seconds: z.number().int().min(1).max(300).default(300),
     shell_path: z.string().min(1).optional(),
   })
   .strict()

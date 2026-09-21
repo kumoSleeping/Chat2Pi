@@ -37,7 +37,7 @@ export const localCredentialsSchema = z
         workspace: z.string().min(1),
         access: z.enum(["workspace", "unrestricted"]),
         tools: z.array(toolName).min(1),
-        timeout_seconds: z.number().int().min(1).max(300).default(60),
+        timeout_seconds: z.number().int().min(1).max(300).default(300),
         shell_path: z.string().optional(),
       })
       .strict(),

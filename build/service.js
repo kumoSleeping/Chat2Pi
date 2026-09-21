@@ -10,6 +10,7 @@ import { migrateHome } from "./migration.js";
 import { loadAgents } from "./accounts.js";
 import { bindingFiles } from "./home-store.js";
 import { readPrivate, savePrivate, token, secureEqual } from "./config.js";
+import { log, colorizeLog } from "./log.js";
 const statePath = (home) => join(home, "runtime", "service.json");
 function state(home) {
     let s;
@@ -103,9 +104,9 @@ function configs(home) {
 }
 export async function serve(home) {
     const list = configs(home);
-    console.log("Loading Pi tools…");
+    log("INFO", "Loading Pi tools…");
     const { startAgent } = await import("./agent.js");
-    console.log("Pi tools loaded; connecting devices…");
+    log("INFO", "Pi tools loaded; connecting devices…");
     const agents = [];
     let stopping = false;
     const id = randomUUID(), credential = token();
@@ -120,6 +121,7 @@ export async function serve(home) {
         if (stopping)
             return;
         stopping = true;
+        log("INFO", "Stopping Chat2Pi; cancelling active tools and disconnecting devices…");
         agents.forEach((a) => a.close());
         clean();
         server.close(() => process.exit(0));
@@ -167,7 +169,7 @@ export async function serve(home) {
         process.on("SIGINT", stop);
         process.on("SIGTERM", stop);
         process.on("exit", clean);
-        console.log(`Chat2Pi running with ${list.length} binding(s)`);
+        log("INFO", `Chat2Pi running with ${list.length} binding(s)`);
     }
     catch (e) {
         agents.forEach((a) => a.close());
@@ -312,6 +314,17 @@ export async function serviceCommand(command, home, background = false) {
         offset = statSync(logPath).size;
     const { StringDecoder } = await import("node:string_decoder");
     const decoder = new StringDecoder("utf8");
+    let pendingLine = "";
+    const display = (text, flush = false) => {
+        const lines = (pendingLine + text).split("\n");
+        pendingLine = lines.pop() ?? "";
+        for (const line of lines)
+            process.stdout.write(colorizeLog(line) + "\n");
+        if (flush && pendingLine) {
+            process.stdout.write(colorizeLog(pendingLine));
+            pendingLine = "";
+        }
+    };
     const poll = () => {
         if (!existsSync(logPath))
             return;
@@ -324,7 +337,7 @@ export async function serviceCommand(command, home, background = false) {
             const count = readSync(fd, buffer, 0, buffer.length, offset);
             offset += count;
             if (count)
-                process.stdout.write(decoder.write(buffer.subarray(0, count)));
+                display(decoder.write(buffer.subarray(0, count)));
         }
         finally {
             closeSync(fd);
@@ -383,7 +396,7 @@ export async function serviceCommand(command, home, background = false) {
                     unlinkSync(pendingPath);
             }
             poll();
-            process.stdout.write(decoder.end());
+            display(decoder.end(), true);
         }
         finally {
             process.removeListener("SIGINT", stop);

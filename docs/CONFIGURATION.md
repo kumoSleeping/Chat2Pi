@@ -48,12 +48,14 @@
     "workspace": "C:/Users/Alice/PiWorkspace",
     "access": "unrestricted",
     "tools": ["read", "write", "edit", "ls", "find", "grep", "bash"],
-    "timeout_seconds": 60
+    "timeout_seconds": 300
   }
 }
 ```
 
 `account_id` 只记录设备归属，不是 OpenAI 账号，也不是连接密钥，不应手动修改。设备密钥只能用于对应绑定。本地工具权限与云端授权取交集；`workspace` 模式限制到工作目录且不允许 Bash。默认新设备启用全部七个工具，可在创建或导入时用 `--access read` 或 `--access workspace` 限制。
+
+工具调用默认总超时为 **300 秒（5 分钟）**，`local.timeout_seconds` 可设为 1–300 秒；已有文件里的显式设置会保留。Bash 参数 `timeout` 可以提前结束命令，但不能延长设备上限。修改后需要重启客户端。
 
 需要代理时在设备文件顶层添加 `proxy_url`。Windows 使用 Bash 工具时，可在 `local.shell_path` 设置 Git Bash 路径，例如 `C:/Program Files/Git/bin/bash.exe`。工作目录、代理和 shell 设置只留在本机，不上传云端。
 

@@ -6,6 +6,6 @@
     "workspace": "/absolute/path/on/this/computer",
     "tools": ["read", "ls", "find", "grep"],
     "access": "workspace",
-    "timeout_seconds": 60
+    "timeout_seconds": 300
   }
 }
