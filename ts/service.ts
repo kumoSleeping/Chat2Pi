@@ -22,14 +22,28 @@ import { readPrivate, savePrivate, token, secureEqual } from "./config.js";
 type State = { pid: number; port: number; token: string; id: string };
 const statePath = (home: string) => join(home, "runtime", "service.json");
 function state(home: string): State | undefined {
-  let s: State;
-  try {
-    s = JSON.parse(readPrivate(statePath(home)));
-  } catch (error: any) {
-    // Shutdown removes this file concurrently with status/restart polling.
-    if (error.code === "ENOENT") return;
-    throw error;
+  let s: State | undefined;
+  for (let attempt = 0; attempt < 21; attempt++) {
+    try {
+      s = JSON.parse(readPrivate(statePath(home)));
+      break;
+    } catch (error: any) {
+      // Shutdown removes this file concurrently with status/restart polling.
+      if (error.code === "ENOENT") return;
+      // Windows exposes a delete-pending file as EPERM until the last handle
+      // closes. Retry briefly, but never mistake a persistent denial for absence.
+      if (
+        process.platform === "win32" &&
+        ["EPERM", "EACCES", "EBUSY"].includes(error.code) &&
+        attempt < 20
+      ) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+        continue;
+      }
+      throw error;
+    }
   }
+  if (!s) throw Error("Invalid local service state");
   if (
     !Number.isInteger(s.pid) ||
     s.pid < 2 ||
