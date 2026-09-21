@@ -60,7 +60,7 @@ node build/cli.js manage --account owner --action bind_device --id my-windows --
 默认云端开放四个只读工具。要开放其他工具，可通过 `manage` 工具或 HTTPS API 的 `tools` 参数指定。领取链接五分钟有效，页面点击后下载 JSON。复制下载文件到目标电脑，安装客户端：
 
 ```sh
-npm install -g github:kumoSleeping/Chat2Pi
+npm install -g https://github.com/kumoSleeping/Chat2Pi/archive/refs/heads/main.tar.gz
 chat2pi device-import --bundle ./chat2pi-credentials.json --workspace ./PiWorkspace
 chat2pi start
 ```

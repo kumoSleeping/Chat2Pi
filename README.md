@@ -15,13 +15,13 @@ ChatGPT ── OAuth / MCP ── Cloudflare Worker
 
 ## 安装客户端
 
-安装 Node.js 22.19 或更新版本，以及 Git，然后：
+安装 Node.js 22.19 或更新版本，然后：
 
 ```sh
-npm install -g github:kumoSleeping/Chat2Pi
+npm install -g https://github.com/kumoSleeping/Chat2Pi/archive/refs/heads/main.tar.gz
 ```
 
-GitHub 仓库附带已编译客户端，安装时不需要本机 TypeScript 编译环境。Pi SDK 随依赖安装，不需单独安装 Pi CLI、Python、cloudflared 或 OpenAI Tunnel。Pi 依赖为 `*`，没有人为版本限制；未来接口变动按实际问题修复。
+GitHub 仓库附带已编译客户端，使用源码归档安装可避开部分 npm 版本的全局 Git 依赖安装问题，不需要 Git 或本机 TypeScript 编译环境。Pi SDK 随依赖安装，不需单独安装 Pi CLI、Python、cloudflared 或 OpenAI Tunnel。Pi 依赖为 `*`，没有人为版本限制；未来接口变动按实际问题修复。
 
 在管理工具中绑定电脑，领取凭证下载文件后，在**目标电脑**上执行：
 
