@@ -57,6 +57,11 @@ export async function startGateway(config) {
         resourceMetadataUrl: `${origin}/.well-known/oauth-protected-resource/mcp`,
     });
     app.post("/mcp", bearer, express.json({ limit: "1mb" }), async (req, res) => {
+        const disconnected = new AbortController();
+        res.once("close", () => {
+            if (!res.writableEnded)
+                disconnected.abort();
+        });
         const server = new Server({ name: "pi-tools", version: "0.2.0" }, {
             capabilities: { tools: {} },
             instructions: "先调用 list_devices 获取在线设备及其允许的工具。按用户指定选择 device_id；有歧义先询问。所有操作都在目标真实电脑执行。离线或目标错误时不得改用其他电脑。断线或超时后不得自动重试写入或命令。",
@@ -100,7 +105,7 @@ export async function startGateway(config) {
                 })),
             ],
         }));
-        server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+        server.setRequestHandler(CallToolRequestSchema, async ({ params }, extra) => {
             try {
                 if (params.name === "list_devices") {
                     const list = registry.list();
@@ -114,7 +119,7 @@ export async function startGateway(config) {
                 const { device_id, ...args } = params.arguments ?? {};
                 if (typeof device_id !== "string" || !device_id)
                     throw new Error("device_id is required; call list_devices");
-                return await registry.call(device_id, params.name, args);
+                return await registry.call(device_id, params.name, args, AbortSignal.any([disconnected.signal, extra.signal]));
             }
             catch (error) {
                 return {

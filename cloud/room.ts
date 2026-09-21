@@ -16,6 +16,7 @@ type Attachment = {
   pi_version?: string;
 };
 type Pending = {
+  account: string;
   socket: WebSocket;
   resolve: (v: any) => void;
   reject: (e: Error) => void;
@@ -23,6 +24,8 @@ type Pending = {
 };
 export class DeviceRoom extends DurableObject<RoomEnv> {
   pending = new Map<string, Pending>();
+  // A cancellation may arrive while call() is still checking the binding.
+  private cancelled = new Map<string, ReturnType<typeof setTimeout>>();
   constructor(ctx: DurableObjectState, env: RoomEnv) {
     super(ctx, env);
     ctx.setWebSocketAutoResponse(
@@ -212,12 +215,42 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
       devices,
     };
   }
+  cancel(account: string, requestId: string) {
+    const key = `${account}/${requestId}`;
+    clearTimeout(this.cancelled.get(key));
+    this.cancelled.set(
+      key,
+      setTimeout(() => this.cancelled.delete(key), 320000),
+    );
+    const p = this.pending.get(requestId);
+    if (!p || p.account !== account) return;
+    clearTimeout(p.timer);
+    this.pending.delete(requestId);
+    p.reject(
+      Error(
+        "Operation cancelled; execution outcome may be unknown. Do not retry automatically.",
+      ),
+    );
+    this.cancelOnDevice(p.socket, requestId);
+  }
+  private cancelOnDevice(ws: WebSocket, requestId: string) {
+    try {
+      ws.send(JSON.stringify({ type: "cancel", request_id: requestId }));
+    } catch {
+      this.fail(ws);
+      ws.close(1011, "Cancellation delivery failed");
+    }
+  }
   async call(
     account: string,
     id: string,
     name: string,
     args: Record<string, unknown>,
+    requestId = crypto.randomUUID(),
   ) {
+    const key = `${account}/${requestId}`;
+    if (this.cancelled.has(key))
+      throw Error("Operation cancelled before dispatch; not executed.");
     const ws = (await this.sockets()).find((ws) => {
       const a = ws.deserializeAttachment() as Attachment;
       return a.account === account && a.id === id && a.ready;
@@ -227,20 +260,27 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
     const d = (await this.registered(account)).find((d) => d.device_id === id)!;
     if (!a.tools.includes(name) || !(d.tools as string[]).includes(name))
       throw Error("Tool not allowed on target device");
-    if ([...this.pending.values()].some((p) => p.socket === ws))
-      throw Error("Device busy");
-    const requestId = crypto.randomUUID();
+    if (this.cancelled.has(key))
+      throw Error("Operation cancelled before dispatch; not executed.");
+    if (this.pending.has(requestId)) throw Error("Duplicate request ID");
+    // Forward all calls; the device owns FIFO scheduling and its total deadline.
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
-        ws.close(1011, "Call timed out");
+        this.cancelOnDevice(ws, requestId);
         reject(
           Error(
             "Device response timed out; outcome unknown. Do not retry automatically.",
           ),
         );
       }, 310000);
-      this.pending.set(requestId, { socket: ws, resolve, reject, timer });
+      this.pending.set(requestId, {
+        account,
+        socket: ws,
+        resolve,
+        reject,
+        timer,
+      });
       try {
         ws.send(
           JSON.stringify({

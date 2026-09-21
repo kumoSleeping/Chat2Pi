@@ -63,10 +63,11 @@ export function colorizeLog(line) {
         return line;
     const colors = {
         INFO: 36,
+        QUEUE: 35,
         START: 34,
         OK: 32,
         WARN: 33,
         ERROR: 31,
     };
-    return line.replace(/^(\S+) \[(INFO|START|OK|WARN|ERROR)\](.*)$/, (_, time, level, body) => `\x1b[90m${time}\x1b[0m \x1b[1;${colors[level]}m[${level}]\x1b[0m${body}`);
+    return line.replace(/^(\S+) \[(INFO|QUEUE|START|OK|WARN|ERROR)\](.*)$/, (_, time, level, body) => `\x1b[90m${time}\x1b[0m \x1b[1;${colors[level]}m[${level}]\x1b[0m${body}`);
 }

@@ -63,7 +63,7 @@ export function argumentPreview(args: Record<string, unknown>): string {
     1000,
   );
 }
-type Level = "INFO" | "START" | "OK" | "WARN" | "ERROR";
+type Level = "INFO" | "QUEUE" | "START" | "OK" | "WARN" | "ERROR";
 export function log(level: Level, message: string) {
   const line = `${new Date().toISOString()} [${level}] ${preview(message, 1800)}`;
   if (level === "ERROR") console.error(line);
@@ -78,13 +78,14 @@ export function colorizeLog(line: string): string {
     return line;
   const colors: Record<Level, number> = {
     INFO: 36,
+    QUEUE: 35,
     START: 34,
     OK: 32,
     WARN: 33,
     ERROR: 31,
   };
   return line.replace(
-    /^(\S+) \[(INFO|START|OK|WARN|ERROR)\](.*)$/,
+    /^(\S+) \[(INFO|QUEUE|START|OK|WARN|ERROR)\](.*)$/,
     (_, time, level: Level, body) =>
       `\x1b[90m${time}\x1b[0m \x1b[1;${colors[level]}m[${level}]\x1b[0m${body}`,
   );

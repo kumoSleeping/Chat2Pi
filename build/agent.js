@@ -5,6 +5,12 @@ import { Runner } from "./runner.js";
 import { log, preview, argumentPreview } from "./log.js";
 import { makeTools, piVersion } from "./pi.js";
 import { requireSecureUrl } from "./config.js";
+const cancelSchema = z
+    .object({
+    type: z.literal("cancel"),
+    request_id: z.string().uuid(),
+})
+    .strict();
 const callSchema = z
     .object({
     type: z.literal("call"),
@@ -40,6 +46,7 @@ export function startAgent(config) {
             handshakeTimeout: 15_000,
         });
         const connection = ws;
+        const calls = new Map();
         let heartbeat;
         let keepalive;
         const touch = () => {
@@ -80,13 +87,28 @@ export function startAgent(config) {
                     log("OK", `Device online: ${config.device.device_id}${config.account_id ? ` (account: ${config.account_id})` : ""} workspace=${preview(config.device.workspace, 240)} timeout=${config.device.timeout_seconds}s tools=${config.device.tools.join(",")}`);
                     return;
                 }
+                if (message.type === "cancel") {
+                    const cancel = cancelSchema.parse(message);
+                    calls.get(cancel.request_id)?.abort();
+                    return;
+                }
                 const call = callSchema.parse(message);
+                if (calls.has(call.request_id)) {
+                    connection.close(1008, "Duplicate request ID");
+                    return;
+                }
                 requestId = call.request_id;
                 if (call.account_id !== config.account_id)
                     throw new Error("Wrong account; refused before execution");
                 operation = `${config.account_id ?? "local"}/${config.device.device_id}/${call.name} #${requestId.slice(0, 8)}`;
-                log("START", `${operation} cwd=${preview(config.device.workspace, 240)} timeout=${config.device.timeout_seconds}s | ${argumentPreview(call.arguments)}`);
-                const result = await runner.call(call.device_id, call.name, call.arguments);
+                const controller = new AbortController();
+                calls.set(requestId, controller);
+                const details = `cwd=${preview(config.device.workspace, 240)} budget=${config.device.timeout_seconds}s | ${argumentPreview(call.arguments)}`;
+                const result = await runner.call(call.device_id, call.name, call.arguments, {
+                    signal: controller.signal,
+                    onQueued: (ahead) => log("QUEUE", `${operation} ahead=${ahead} | ${details}`),
+                    onStart: (waitMs) => log("START", `${operation} wait=${(waitMs / 1000).toFixed(2)}s | ${details}`),
+                });
                 const payload = JSON.stringify({
                     type: "result",
                     request_id: requestId,
@@ -120,6 +142,10 @@ export function startAgent(config) {
                             ? error.message.slice(0, 8192)
                             : "Tool failed",
                     }));
+            }
+            finally {
+                if (requestId)
+                    calls.delete(requestId);
             }
         });
         connection.on("error", (error) => {

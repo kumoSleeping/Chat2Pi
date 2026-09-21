@@ -74,6 +74,10 @@ export async function startGateway(config: GatewayConfig) {
     resourceMetadataUrl: `${origin}/.well-known/oauth-protected-resource/mcp`,
   });
   app.post("/mcp", bearer, express.json({ limit: "1mb" }), async (req, res) => {
+    const disconnected = new AbortController();
+    res.once("close", () => {
+      if (!res.writableEnded) disconnected.abort();
+    });
     const server = new Server(
       { name: "pi-tools", version: "0.2.0" },
       {
@@ -124,33 +128,41 @@ export async function startGateway(config: GatewayConfig) {
         })),
       ],
     }));
-    server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-      try {
-        if (params.name === "list_devices") {
-          const list = registry.list();
+    server.setRequestHandler(
+      CallToolRequestSchema,
+      async ({ params }, extra) => {
+        try {
+          if (params.name === "list_devices") {
+            const list = registry.list();
+            return {
+              content: [{ type: "text", text: JSON.stringify(list) }],
+              structuredContent: list,
+            };
+          }
+          if (!toolNames.includes(params.name as any))
+            throw new Error("Unknown tool");
+          const { device_id, ...args } = params.arguments ?? {};
+          if (typeof device_id !== "string" || !device_id)
+            throw new Error("device_id is required; call list_devices");
+          return await registry.call(
+            device_id,
+            params.name,
+            args,
+            AbortSignal.any([disconnected.signal, extra.signal]),
+          );
+        } catch (error) {
           return {
-            content: [{ type: "text", text: JSON.stringify(list) }],
-            structuredContent: list,
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: error instanceof Error ? error.message : "Tool failed",
+              },
+            ],
           };
         }
-        if (!toolNames.includes(params.name as any))
-          throw new Error("Unknown tool");
-        const { device_id, ...args } = params.arguments ?? {};
-        if (typeof device_id !== "string" || !device_id)
-          throw new Error("device_id is required; call list_devices");
-        return await registry.call(device_id, params.name, args);
-      } catch (error) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: error instanceof Error ? error.message : "Tool failed",
-            },
-          ],
-        };
-      }
-    });
+      },
+    );
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

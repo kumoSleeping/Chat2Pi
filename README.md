@@ -133,6 +133,10 @@ chat2pi bootstrap --url https://YOUR-SERVER --account owner --key-file ~/.chat2p
 | `read`、`write`、`edit`、`ls`、`find`、`grep`、`bash` | 目标电脑上的 Pi 工具，必须指定 `device_id` |
 | `manage`                                              | 管理账号和设备。                           |
 
+同一设备连接上的工具调用按到达顺序排队，始终串行执行，不再因为上一条调用未完成而返回 `Device busy`。不同文件也遵循相同规则，不做文件冲突判断。排队和执行共用设备超时预算（默认 300 秒）；排队过期、收到取消信号或设备断线后，尚未开始的任务不会再执行。日志以 `QUEUE` / `START` / `OK` / `ERROR` 展示状态，并显示等待时间。队列针对设备连接，不是跨账号绑定的整机锁。
+
+此功能需要同时更新云端和客户端；仅刷新 ChatGPT 工具清单不会更新服务代码。客户端更新后重新启动，云端自部署者在 `cloud/` 执行 `npm ci && npm run deploy`。
+
 `manage` 的动作：`me`、`list_accounts`、`create_account`、`set_role`、`disable_account`、`enable_account`、`list_devices`、`bind_device`、`unbind_device`、`reissue_device`、`rotate_login`。
 
 普通账号只管理自己的绑定；管理其他账号和账号角色需要管理员权限。身份从已验证的 OAuth 凭证取得，不采用模型传入的账号身份。管理员能管理其他账号的绑定，普通执行工具仍只操作当前登录账号的电脑。

@@ -1,5 +1,13 @@
 import { executor } from "./pi.js";
 import type { Device } from "./config.js";
+const abort = new AbortController();
+process.once("disconnect", () => {
+  abort.abort();
+  setTimeout(() => process.exit(1), 2000).unref();
+});
+process.on("message", (message: { type?: string }) => {
+  if (message.type === "cancel") abort.abort();
+});
 process.once(
   "message",
   async (message: {
@@ -11,7 +19,7 @@ process.once(
       const result = await executor(message.device)(
         message.name,
         message.args,
-        new AbortController().signal,
+        abort.signal,
       );
       if (Buffer.byteLength(JSON.stringify(result)) > 3 * 1024 * 1024)
         throw new Error(

@@ -38,6 +38,26 @@ async function manage(env: Env, identity: Identity, input: unknown) {
     );
   return result;
 }
+async function callDevice(
+  env: Env,
+  account: string,
+  deviceId: string,
+  name: string,
+  args: Record<string, unknown>,
+  signal: AbortSignal,
+  ctx: Pick<ExecutionContext, "waitUntil">,
+) {
+  signal.throwIfAborted();
+  const registry = room(env, account);
+  const requestId = crypto.randomUUID();
+  const cancel = () => ctx.waitUntil(registry.cancel(account, requestId));
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    return await registry.call(account, deviceId, name, args, requestId);
+  } finally {
+    signal.removeEventListener("abort", cancel);
+  }
+}
 const headers = pageHeaders;
 class McpApi extends WorkerEntrypoint<Env, Identity & { scope: string[] }> {
   async fetch(request: Request) {
@@ -106,55 +126,61 @@ class McpApi extends WorkerEntrypoint<Env, Identity & { scope: string[] }> {
         })),
       ] as any,
     }));
-    server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-      try {
-        if (params.name === "manage")
+    server.setRequestHandler(
+      CallToolRequestSchema,
+      async ({ params }, extra) => {
+        try {
+          if (params.name === "manage")
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify(
+                    await manage(this.env, identity, params.arguments ?? {}),
+                  ),
+                },
+              ],
+            };
+          if (params.name === "list_devices") {
+            // RPC results carry disposal symbols; MCP payloads must be plain JSON.
+            const list = JSON.parse(
+              JSON.stringify(await registry.list(identity.accountId)),
+            );
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify(list) }],
+            };
+          }
+          if (!catalog.some((t) => t.name === params.name))
+            throw Error("Unknown tool");
+          const { device_id, ...args } = params.arguments ?? {};
+          if (typeof device_id !== "string" || !device_id)
+            throw Error("device_id is required; call list_devices");
+          return JSON.parse(
+            JSON.stringify(
+              await callDevice(
+                this.env,
+                identity.accountId,
+                device_id,
+                params.name,
+                args,
+                AbortSignal.any([request.signal, extra.signal]),
+                this.ctx,
+              ),
+            ),
+          );
+        } catch (e) {
           return {
+            isError: true,
             content: [
               {
                 type: "text" as const,
-                text: JSON.stringify(
-                  await manage(this.env, identity, params.arguments ?? {}),
-                ),
+                text: e instanceof Error ? e.message : "Tool failed",
               },
             ],
           };
-        if (params.name === "list_devices") {
-          // RPC results carry disposal symbols; MCP payloads must be plain JSON.
-          const list = JSON.parse(
-            JSON.stringify(await registry.list(identity.accountId)),
-          );
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify(list) }],
-          };
         }
-        if (!catalog.some((t) => t.name === params.name))
-          throw Error("Unknown tool");
-        const { device_id, ...args } = params.arguments ?? {};
-        if (typeof device_id !== "string" || !device_id)
-          throw Error("device_id is required; call list_devices");
-        return JSON.parse(
-          JSON.stringify(
-            await registry.call(
-              identity.accountId,
-              device_id,
-              params.name,
-              args,
-            ),
-          ),
-        );
-      } catch (e) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text" as const,
-              text: e instanceof Error ? e.message : "Tool failed",
-            },
-          ],
-        };
-      }
-    });
+      },
+    );
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -169,7 +195,7 @@ class McpApi extends WorkerEntrypoint<Env, Identity & { scope: string[] }> {
   }
 }
 const defaultHandler: ExportedHandler<Env> = {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url),
       r = directory(env);
     if (url.pathname === "/healthz")
@@ -206,11 +232,14 @@ const defaultHandler: ExportedHandler<Env> = {
       if (url.pathname === "/api/call") {
         const input = directCallSchema.parse(await request.json());
         return Response.json(
-          await room(env, identity.accountId).call(
+          await callDevice(
+            env,
             identity.accountId,
             input.device_id,
             input.name,
             input.arguments,
+            request.signal,
+            ctx,
           ),
         );
       }

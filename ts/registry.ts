@@ -17,7 +17,7 @@ export class Registry {
       deviceId: string;
       resolve: (v: any) => void;
       reject: (e: Error) => void;
-      timer: NodeJS.Timeout;
+      cleanup: () => void;
     }
   >();
   readonly local?: Runner;
@@ -34,7 +34,7 @@ export class Registry {
     this.remotes.delete(id);
     for (const [key, p] of this.pending)
       if (p.deviceId === id) {
-        clearTimeout(p.timer);
+        p.cleanup();
         this.pending.delete(key);
         p.reject(
           new Error(
@@ -46,7 +46,7 @@ export class Registry {
   result(id: string, requestId: string, result: unknown, error?: string) {
     const p = this.pending.get(requestId);
     if (!p || p.deviceId !== id) return;
-    clearTimeout(p.timer);
+    p.cleanup();
     this.pending.delete(requestId);
     error ? p.reject(new Error(error)) : p.resolve(result);
   }
@@ -74,28 +74,52 @@ export class Registry {
       devices,
     };
   }
-  async call(id: string, name: string, args: Record<string, unknown>) {
+  async call(
+    id: string,
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) {
+    signal?.throwIfAborted();
     if (this.local?.device.device_id === id)
-      return this.local.call(id, name, args);
+      return this.local.call(id, name, args, { signal });
     const r = this.remotes.get(id);
     if (!r || r.socket.readyState !== WebSocket.OPEN)
       throw new Error("Target device is offline or unknown; call list_devices");
     if (!r.tools.includes(name))
       throw new Error("Tool not allowed on target device");
-    if ([...this.pending.values()].some((p) => p.deviceId === id))
-      throw new Error("Target device busy");
     const requestId = randomUUID();
     return await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const cancel = (message: string) => {
+        const p = this.pending.get(requestId);
+        if (!p) return;
+        p.cleanup();
         this.pending.delete(requestId);
-        r.socket.close(1011, "Operation timeout");
-        reject(
-          new Error(
+        reject(new Error(message));
+        r.socket.send(
+          JSON.stringify({ type: "cancel", request_id: requestId }),
+          (error) => {
+            if (error) this.detach(id, r.socket);
+          },
+        );
+      };
+      const onAbort = () =>
+        cancel(
+          "Operation cancelled; execution outcome may be unknown. Do not retry automatically.",
+        );
+      const timer = setTimeout(
+        () =>
+          cancel(
             "Device response timed out; outcome unknown. Do not retry automatically.",
           ),
-        );
-      }, 310_000);
-      this.pending.set(requestId, { deviceId: id, resolve, reject, timer });
+        310_000,
+      );
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      this.pending.set(requestId, { deviceId: id, resolve, reject, cleanup });
+      signal?.addEventListener("abort", onAbort, { once: true });
       r.socket.send(
         JSON.stringify({
           type: "call",

@@ -26,7 +26,7 @@ export declare class Registry {
             pi_version: string | undefined;
         }[];
     };
-    call(id: string, name: string, args: Record<string, unknown>): Promise<any>;
+    call(id: string, name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<any>;
     close(): void;
 }
 export {};
