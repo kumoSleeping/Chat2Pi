@@ -11,9 +11,16 @@ import { bindingFiles } from "./home-store.js";
 import { readPrivate, savePrivate, token, secureEqual } from "./config.js";
 const statePath = (home) => join(home, "runtime", "service.json");
 function state(home) {
-    if (!existsSync(statePath(home)))
-        return;
-    const s = JSON.parse(readPrivate(statePath(home)));
+    let s;
+    try {
+        s = JSON.parse(readPrivate(statePath(home)));
+    }
+    catch (error) {
+        // Shutdown removes this file concurrently with status/restart polling.
+        if (error.code === "ENOENT")
+            return;
+        throw error;
+    }
     if (!Number.isInteger(s.pid) ||
         s.pid < 2 ||
         !Number.isInteger(s.port) ||

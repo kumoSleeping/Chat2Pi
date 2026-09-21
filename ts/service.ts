@@ -22,8 +22,14 @@ import { readPrivate, savePrivate, token, secureEqual } from "./config.js";
 type State = { pid: number; port: number; token: string; id: string };
 const statePath = (home: string) => join(home, "runtime", "service.json");
 function state(home: string): State | undefined {
-  if (!existsSync(statePath(home))) return;
-  const s = JSON.parse(readPrivate(statePath(home)));
+  let s: State;
+  try {
+    s = JSON.parse(readPrivate(statePath(home)));
+  } catch (error: any) {
+    // Shutdown removes this file concurrently with status/restart polling.
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
   if (
     !Number.isInteger(s.pid) ||
     s.pid < 2 ||

@@ -109,7 +109,7 @@ test(
         method: "POST",
       });
       assert.equal(denied.status, 403);
-      await run("restart");
+      for (let attempt = 0; attempt < 5; attempt++) await run("restart");
       assert.notEqual(
         JSON.parse(readFileSync(join(home, "runtime", "service.json"), "utf8"))
           .id,
