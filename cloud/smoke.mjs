@@ -1,11 +1,10 @@
+import { homeDirectory, selectLogin } from "../build/home-store.js";
+import { join } from "node:path";
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomBytes, createHash } from "node:crypto";
 const credentials = JSON.parse(
-  readFileSync(
-    process.argv[2] || new URL("../.local/kumo.login.json", import.meta.url),
-    "utf8",
-  ),
+  readFileSync(process.argv[2] || selectLogin(homeDirectory()), "utf8"),
 );
 const base = credentials.server_url;
 const owner = credentials.login_key;
@@ -159,7 +158,7 @@ tokens = await r.json();
 await rpc("tools/list", {});
 console.log("Refreshed access token works");
 writeFileSync(
-  new URL("../.local/cloud-smoke-client.json", import.meta.url),
+  join(homeDirectory(), "runtime", "oauth-smoke.json"),
   JSON.stringify({ base, client, tokens }),
   { mode: 0o600 },
 );

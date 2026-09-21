@@ -27,17 +27,17 @@ npm ci --prefix cloud
 在仓库根目录生成一次性初始化密钥和云端摘要文件（不覆盖已有文件）：
 
 ```sh
-node --input-type=module -e 'import {randomBytes,createHash} from "node:crypto"; import {mkdirSync,writeFileSync} from "node:fs"; mkdirSync(".local",{recursive:true,mode:448}); const key=randomBytes(32).toString("hex"); writeFileSync(".local/bootstrap-key",key,{mode:384,flag:"wx"}); writeFileSync(".local/bootstrap-secrets.json",JSON.stringify({BOOTSTRAP_KEY_SHA256:createHash("sha256").update(key).digest("hex")}),{mode:384,flag:"wx"})'
+node --input-type=module -e 'import {randomBytes,createHash} from "node:crypto"; import {mkdirSync,writeFileSync} from "node:fs"; const dir=process.env.HOME||process.env.USERPROFILE; if(!dir)throw Error("User home missing"); const root=dir+"/.chat2pi/deployment"; mkdirSync(root,{recursive:true,mode:448}); const key=randomBytes(32).toString("hex"); writeFileSync(root+"/bootstrap-key",key,{mode:384,flag:"wx"}); writeFileSync(root+"/bootstrap-secrets.json",JSON.stringify({BOOTSTRAP_KEY_SHA256:createHash("sha256").update(key).digest("hex")}),{mode:384,flag:"wx"})'
 ```
 
 进入 `cloud` 部署，然后回到根目录初始化管理员：
 
 ```sh
-npx wrangler deploy --config wrangler.local.jsonc --secrets-file ../.local/bootstrap-secrets.json
+npx wrangler deploy --config wrangler.local.jsonc --secrets-file ~/.chat2pi/deployment/bootstrap-secrets.json
 ```
 
 ```sh
-node build/cli.js bootstrap --url https://YOUR-SERVER --account owner --key-file .local/bootstrap-key --out .local/owner.login.json
+node build/cli.js bootstrap --url https://YOUR-SERVER --account owner --key-file ~/.chat2pi/deployment/bootstrap-key
 ```
 
 第一个账号自动为管理员。初始化入口之后不可重复调用。保管好账号登录文件；丢失最后一位管理员凭证时需部署者通过数据库维护恢复，不开放无认证的重置入口。
@@ -53,24 +53,28 @@ MCP URL：`https://YOUR-SERVER/mcp`。身份验证选择 OAuth，客户端设置
 在聊天中请求绑定电脑，或：
 
 ```sh
-node build/cli.js manage --credentials .local/owner.login.json --action bind_device --id my-windows --name Windows
+node build/cli.js manage --account owner --action bind_device --id my-windows --name Windows
 ```
 
 默认云端开放四个只读工具。要开放其他工具，可通过 `manage` 工具或 HTTPS API 的 `tools` 参数指定。领取链接五分钟有效，页面点击后下载 JSON。复制下载文件到目标电脑，安装客户端：
 
 ```sh
 npm install -g github:kumoSleeping/Chat2Pi
-chat2pi device-import --bundle ./chat2pi-credentials.json --config ./owner--windows.binding.json --workspace ./PiWorkspace
-chat2pi agent --config ./owner--windows.binding.json
+chat2pi device-import --bundle ./chat2pi-credentials.json --workspace ./PiWorkspace
+chat2pi start
 ```
 
 先创建工作目录。需要 Bash / 写入时，云端要允许对应工具，本地导入时也需显式选择 `--unrestricted`。Windows Bash 需要 Git for Windows，并在本地凭证配置中设置 `local.shell_path`。代理可用顶层 `proxy_url`，例如 `http://127.0.0.1:7890`。
 
-新增账号、设备、管理员角色都通过接口写数据库，无需重新部署。不同账号绑定同一台电脑，分别领取独立配置并分别启动 agent。执行身份在云端与本地双重检查；同一系统用户下的任意命令执行不是强账号沙箱。
+新增账号、设备、管理员角色都通过接口写数据库，无需重新部署。不同账号绑定同一台电脑，分别导入独立配置，运行 `chat2pi restart` 同时启动所有绑定。执行身份在云端与本地双重检查；同一系统用户下的任意命令执行不是强账号沙箱。
 
 ## 管理接口与智能体
 
 详见 [远程管理 API](MANAGEMENT-API.md)。智能体可读取本地私密账号文件并直接请求服务，无需浏览器、ChatGPT cookie 或 Cloudflare 管理令牌。
+
+## 从 0.4 迁移本机目录
+
+先停止旧的 `agent-start --config` 进程。用 `login-import` 导入账号登录文件；把现有绑定 JSON 及同名 `.credentials.json` 一起移动到 `~/.chat2pi/bindings/`（绑定文件以 `.binding.json` 结尾），然后 `chat2pi start`。保留原本地权限、工作目录和代理设置，无需重发凭证。
 
 ## 从 0.3 迁移
 

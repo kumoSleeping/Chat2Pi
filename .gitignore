@@ -13,3 +13,5 @@ wrangler.local.jsonc
 *.login.json
 *.login-key
 *.bootstrap-key
+
+.chat2pi/

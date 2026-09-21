@@ -1,5 +1,7 @@
 # 远程管理 API / 智能体接入
 
+默认从 `~/.chat2pi/accounts/` 自动读取账号凭证。只有一个账号时无需 `--credentials`；多个账号用 `--account`，必要时加 `--url`。显式 `--credentials` 仍然支持。
+
 所有管理入口共用服务端权限逻辑。Cloudflare 部署凭证不用于日常管理。
 
 ## 认证

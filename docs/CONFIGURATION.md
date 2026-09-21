@@ -1,3 +1,11 @@
+# 本机统一存储
+
+默认根目录为 `~/.chat2pi`，Windows 为 `%USERPROFILE%\.chat2pi`。账号凭证存放在 `accounts/`，设备绑定和对应私密执行配置存放在 `bindings/`。文件名自动包含服务地址摘要、账号和设备，避免不同服务的同名账号相互覆盖。
+
+`chat2pi start / stop / restart / status` 自动使用此目录；`restart` 重新加载全部绑定。可以通过 `--home PATH` 管理另一套完全独立的配置。
+
+下面的 JSON 字段不变，导入时自动保存到正确的位置。Windows 目录权限继承当前用户个人目录的 ACL；不要把凭证目录放在共享目录。
+
 # 配置字段样例
 
 一份绑定文件对应一个账号和一台电脑，例如 `kumo--mac.binding.json`、`kumo--windows.binding.json`、`family--mac.binding.json`。以下摘要和密钥都是示意，不能直接用于连接。

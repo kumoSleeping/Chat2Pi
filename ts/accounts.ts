@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+  homeDirectory,
+  loginPath,
+  bindingPath,
+  selectLogin,
+} from "./home-store.js";
 import { z } from "zod";
 import {
   bindingSchema,
@@ -67,6 +74,7 @@ const loginSchema = z
   })
   .strict();
 export type AccountOptions = {
+  home?: string;
   config?: string;
   url?: string;
   account?: string;
@@ -112,6 +120,7 @@ export async function accountCommand(
 ): Promise<boolean> {
   if (
     ![
+      "login-import",
       "bootstrap",
       "manage",
       "call",
@@ -121,6 +130,19 @@ export async function accountCommand(
     ].includes(command)
   )
     return false;
+  const home = homeDirectory(o.home);
+  if (command === "login-import") {
+    if (!o.bundle) throw Error("login-import requires --bundle login.json");
+    const login = loginSchema.parse(JSON.parse(readPrivate(resolve(o.bundle))));
+    const path = loginPath(home, login.server_url, login.account_id);
+    if (existsSync(path))
+      throw Error("Account credential already exists; not overwritten");
+    savePrivate(path, json(login));
+    console.log(`Account credential saved privately: ${path}`);
+    return true;
+  }
+  if (["manage", "call"].includes(command) && !o.credentials)
+    o = { ...o, credentials: selectLogin(home, o.account, o.url) };
   if (command === "config-check") {
     if (!o.config) throw Error("--config required");
     loadAgents(resolve(o.config), o.credentials);
@@ -128,16 +150,23 @@ export async function accountCommand(
     return true;
   }
   if (command === "device-import") {
-    if (!o.bundle || !o.config || !o.workspace)
+    if (!o.bundle || !o.workspace)
       throw Error(
-        "device-import requires --bundle download.json --config binding.json --workspace path",
+        "device-import requires --bundle download.json --workspace path",
       );
-    const path = resolve(o.config),
+    const bundle = JSON.parse(readPrivate(resolve(o.bundle))),
+      binding = bindingSchema.parse(bundle.binding);
+    const path = o.config
+        ? resolve(o.config)
+        : bindingPath(
+            home,
+            binding.server_url,
+            binding.account_id,
+            binding.device_id,
+          ),
       cp = resolve(o.credentials ?? path + ".credentials.json");
     if (path === cp || existsSync(path) || existsSync(cp))
       throw Error("Choose new and separate binding and credential paths");
-    const bundle = JSON.parse(readPrivate(resolve(o.bundle))),
-      binding = bindingSchema.parse(bundle.binding);
     if (
       typeof bundle.device_key !== "string" ||
       hash(bundle.device_key) !== binding.device_key_sha256
@@ -160,30 +189,34 @@ export async function accountCommand(
     return true;
   }
   if (command === "bootstrap") {
-    if (!o.url || !o.account || !o["key-file"] || !o.out)
-      throw Error("bootstrap requires --url --account --key-file --out");
-    if (existsSync(resolve(o.out))) throw Error("Output already exists");
+    if (!o.url || !o.account || !o["key-file"])
+      throw Error("bootstrap requires --url --account --key-file");
+    const output = o.out ? resolve(o.out) : loginPath(home, o.url!, o.account!);
+    if (existsSync(output)) throw Error("Output already exists");
     const result = await post(
       o.url,
       "/bootstrap",
       { account_id: o.account, name: o.name ?? o.account },
       { Authorization: "Bearer " + readPrivate(resolve(o["key-file"])).trim() },
     );
-    savePrivate(resolve(o.out), json(loginSchema.parse(result)));
-    console.log(`Administrator login saved privately: ${resolve(o.out)}`);
+    savePrivate(output, json(loginSchema.parse(result)));
+    console.log(`Administrator login saved privately: ${output}`);
     return true;
   }
   if (command === "claim") {
-    if (!o.url || !o.out) throw Error("claim requires --url claim-link --out");
-    if (existsSync(resolve(o.out))) throw Error("Output already exists");
+    if (!o.url) throw Error("claim requires --url claim-link");
+    const output = o.out
+      ? resolve(o.out)
+      : join(home, "downloads", randomUUID() + ".json");
+    if (existsSync(output)) throw Error("Output already exists");
     const url = new URL(o.url);
     if (url.pathname !== "/claim" || !url.hash)
       throw Error("Invalid claim URL");
     const result = await post(url.origin, "/claim", {
       code: url.hash.slice(1),
     });
-    savePrivate(resolve(o.out), json(result));
-    console.log(`Credentials saved privately: ${resolve(o.out)}`);
+    savePrivate(output, json(result));
+    console.log(`Credentials saved privately: ${output}`);
     return true;
   }
   if (command === "call") {

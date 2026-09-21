@@ -26,13 +26,36 @@ GitHub 安装会构建 TypeScript。Pi SDK 随依赖安装，不需单独安装 
 在管理工具中绑定电脑，领取凭证下载文件后，在**目标电脑**上执行：
 
 ```sh
-chat2pi device-import --bundle ./chat2pi-credentials.json --config ./kumo--mac.binding.json --workspace ./PiWorkspace
-chat2pi agent --config ./kumo--mac.binding.json
+chat2pi device-import --bundle ./chat2pi-credentials.json --workspace ./PiWorkspace
+chat2pi start
+chat2pi status
 ```
 
 先创建工作目录。默认本地只启用工作目录内的只读工具。即使云端允许更多工具，本地仍取权限交集；需要全部已授权工具时，导入时显式加 `--unrestricted`。
 
-每份绑定配置旁边有一个私密 `.credentials.json` 文件，保存设备密钥和本地执行限制，不上传云端。同一电脑使用多个绑定时，分别运行对应的 agent。macOS / Linux 可用 `agent-start`、`agent-stop`、`agent-restart`、`agent-status` 后台管理；不包含开机自启。
+所有默认文件集中在用户目录的 `~/.chat2pi`（Windows 为 `%USERPROFILE%\.chat2pi`）：
+
+```text
+.chat2pi/
+  accounts/   账号登录凭证
+  bindings/   每个账号 + 电脑的绑定及私密 .credentials.json
+  downloads/  领取的凭证包
+  runtime/    后台服务状态、控制凭证和日志
+```
+
+```sh
+chat2pi start    # 自动启动 bindings 中所有设备连接
+chat2pi stop
+chat2pi restart --all  # 重新读取所有账号的配置
+chat2pi status   # 查看本地进程和已加载绑定
+chat2pi manage --action me
+```
+
+启停和状态命令默认处理全部已导入绑定，支持显式 `--all`，例如 `chat2pi start --all`、`chat2pi stop --all` 和 `chat2pi status --all`。`--all` 不用于管理权限或执行电脑工具；这些操作仍然选择唯一账号。
+
+`start` 重复运行不会重复启动。新增或修改绑定后运行 `restart`；不自动监视文件变化。`status` 的运行状态不等于云端在线状态，在线设备用 `manage --action list_devices` 查询。后台管理使用经过认证的本机控制接口，适用于 macOS / Linux / Windows，不包含开机自启。
+
+通过 `login-import --bundle login.json` 导入账号凭证；只有一个账号时管理命令自动选择，多个账号用 `--account` 指定，同名账号分属不同服务时再加 `--url`。可用 `--home` 指定独立的配置目录。设备私密文件保留本地权限限制，实际权限仍取云端与本地交集。
 
 Windows 文件工具可以直接运行。使用 Bash 工具需额外安装 Git for Windows，并在私密配置的 `local.shell_path` 指定 Bash 路径。Windows 尚未实机验证。
 
@@ -43,7 +66,7 @@ Windows 文件工具可以直接运行。使用 Bash 工具需额外安装 Git f
 部署时设置一次性初始化密钥的摘要。持有密钥才能创建第一个账号，该账号自动成为管理员；初始化完成后入口永久关闭，不因重启或修改密钥重新开放。
 
 ```sh
-chat2pi bootstrap --url https://YOUR-SERVER --account owner --key-file .local/bootstrap-key --out .local/owner.login.json
+chat2pi bootstrap --url https://YOUR-SERVER --account owner --key-file ~/.chat2pi/deployment/bootstrap-key
 ```
 
 管理员可以创建账号、授予或撤销管理员权限、停用账号和管理设备。系统不允许停用或降级最后一位有效管理员。
@@ -69,9 +92,9 @@ chat2pi bootstrap --url https://YOUR-SERVER --account owner --key-file .local/bo
 CLI 也可管理，例如：
 
 ```sh
-chat2pi manage --credentials .local/owner.login.json --action create_account --target family --name Family
-chat2pi manage --credentials .local/owner.login.json --action bind_device --target family --id family-windows
-chat2pi manage --credentials .local/owner.login.json --action set_role --target family --role admin
+chat2pi manage --account owner --action create_account --target family --name Family
+chat2pi manage --account owner --action bind_device --target family --id family-windows
+chat2pi manage --account owner --action set_role --target family --role admin
 ```
 
 ## 配置与安全边界
