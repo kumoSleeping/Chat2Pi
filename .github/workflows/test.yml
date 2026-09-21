@@ -12,6 +12,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - run: npm run build
+      - run: git diff --exit-code -- build
       - run: npm test
       - run: npm ci --prefix cloud
       - run: npx tsc -p cloud/tsconfig.json

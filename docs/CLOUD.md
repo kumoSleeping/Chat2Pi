@@ -8,6 +8,7 @@
 git clone https://github.com/kumoSleeping/Chat2Pi.git
 cd Chat2Pi
 npm ci
+npm run build
 npm ci --prefix cloud
 ```
 

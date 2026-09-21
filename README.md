@@ -21,7 +21,7 @@ ChatGPT ── OAuth / MCP ── Cloudflare Worker
 npm install -g github:kumoSleeping/Chat2Pi
 ```
 
-GitHub 安装会构建 TypeScript。Pi SDK 随依赖安装，不需单独安装 Pi CLI、Python、cloudflared 或 OpenAI Tunnel。Pi 依赖为 `*`，没有人为版本限制；未来接口变动按实际问题修复。
+GitHub 仓库附带已编译客户端，安装时不需要本机 TypeScript 编译环境。Pi SDK 随依赖安装，不需单独安装 Pi CLI、Python、cloudflared 或 OpenAI Tunnel。Pi 依赖为 `*`，没有人为版本限制；未来接口变动按实际问题修复。
 
 在管理工具中绑定电脑，领取凭证下载文件后，在**目标电脑**上执行：
 
