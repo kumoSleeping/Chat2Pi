@@ -84,7 +84,7 @@ test(
       ).stdout;
     try {
       assert.equal(JSON.parse(await run("status")).running, false);
-      await assert.rejects(run("start"), /No device bindings/);
+      await assert.rejects(run("start"), /No devices found/);
       for (const id of ["first", "second"])
         savePrivate(
           join(home, "bindings", id + ".binding.json"),
@@ -151,7 +151,12 @@ test(
       wss.once("connection", (ws) => {
         ws.on("message", (raw) => {
           if (JSON.parse(raw.toString()).type === "hello") {
-            ws.send(JSON.stringify({ type: "ready", device_id: "pc" }));
+            ws.send(
+              JSON.stringify({
+                type: "ready",
+                device_id: "pc",
+              }),
+            );
             resolve(ws);
           }
         });
@@ -174,7 +179,12 @@ test(
         timeout: 10000,
       });
     try {
-      const ws = await connected;
+      const ws = await Promise.race([
+        connected,
+        exited.then(() => {
+          throw Error(`Service exited before connecting: ${output}`);
+        }),
+      ]);
       for (let n = 0; n < 100 && !output.includes("Device online: pc"); n++)
         await new Promise((r) => setTimeout(r, 50));
       assert.match(output, /Device online: pc/);

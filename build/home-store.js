@@ -53,6 +53,6 @@ export function selectLogin(home, account, url) {
     if (files.length !== 1)
         throw Error(files.length
             ? "Multiple accounts found; select --account and, if necessary, --url"
-            : "No account credential found; use login-import --bundle file or --credentials file");
+            : "No account credential found; place the account JSON in ~/.chat2pi/accounts/ on your management computer, or use --credentials FILE");
     return files[0];
 }

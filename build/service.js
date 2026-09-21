@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
+import { prepareDeviceFolder } from "./device-folder.js";
 import { migrateHome } from "./migration.js";
 import { loadAgents } from "./accounts.js";
 import { bindingFiles } from "./home-store.js";
@@ -89,7 +90,7 @@ function control(s, stop = false) {
 function configs(home) {
     const files = bindingFiles(home);
     if (!files.length)
-        throw Error("No device bindings found; run chat2pi device-import --bundle file --workspace path");
+        throw Error(`No devices found. Put your device JSON in ${join(home, "devices")} and run chat2pi start`);
     const result = files.flatMap((path) => loadAgents(path));
     const ids = new Set();
     for (const c of result) {
@@ -175,7 +176,7 @@ export async function serve(home) {
     }
 }
 async function backgroundCommand(command, home, session) {
-    if (command === "serve") {
+    if (command === "_serve") {
         await serve(home);
         return true;
     }
@@ -255,13 +256,14 @@ async function backgroundCommand(command, home, session) {
             return true;
         }
         migrateHome(home);
+        prepareDeviceFolder(home);
         configs(home);
         session?.signal.throwIfAborted();
         console.log("Starting Chat2Pi; loading device tools…");
         const log = openSync(join(runtime, "service.log"), "a", 0o600);
         const child = spawn(process.execPath, [
             fileURLToPath(new URL("./cli.js", import.meta.url)),
-            "serve",
+            "_serve",
             "--home",
             home,
         ], { detached: true, stdio: ["ignore", log, log], windowsHide: true });

@@ -3,11 +3,16 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { accountCommand, hash, loadAgents } from "../build/accounts.js";
+import {
+  accountCommand,
+  hash,
+  loadAgents,
+  prepareDeviceBundle,
+} from "../build/accounts.js";
 import { savePrivate } from "../build/config.js";
-import { bindingPath } from "../build/home-store.js";
+import { prepareDeviceFolder } from "../build/device-folder.js";
 
-test("device-create saves before sending, retries with the same secret, and imports all tools by default", async () => {
+test("device-create saves before sending, retries with the same secret, and enables all tools by default", async () => {
   const root = mkdtempSync(join(tmpdir(), "chat2pi-create-"));
   const originalFetch = globalThis.fetch;
   const login = {
@@ -46,31 +51,21 @@ test("device-create saves before sending, retries with the same secret, and impo
     );
     assert.equal(calls, 3);
     const workspace = join(root, "workspace");
-    await assert.rejects(
-      accountCommand("device-import", {
-        home: root,
-        bundle: credentials,
-        workspace,
-      }),
-      /account file for ChatGPT authorization/,
+    const devicePath = join(root, "devices", "pc.json");
+    savePrivate(
+      devicePath,
+      JSON.stringify(
+        prepareDeviceBundle(JSON.parse(readFileSync(out, "utf8")), {
+          workspace,
+        }),
+      ),
     );
-    await assert.rejects(
-      accountCommand("login-import", { home: root, bundle: out }),
-      /device file/,
-    );
-    const imp = { home: root, bundle: out, workspace };
-    await accountCommand("device-import", imp);
-    await accountCommand("device-import", imp);
-    const [agent] = loadAgents(
-      bindingPath(root, login.server_url, "alice", "pc"),
-    );
+    prepareDeviceFolder(root);
+    prepareDeviceFolder(root);
+    const [agent] = loadAgents(devicePath);
     assert.equal(agent.device.tools.length, 7);
     assert.equal(agent.device.access, "unrestricted");
     assert(existsSync(workspace));
-    await assert.rejects(
-      accountCommand("device-import", { ...imp, access: "read" }),
-      /differ/,
-    );
   } finally {
     globalThis.fetch = originalFetch;
     rmSync(root, { recursive: true, force: true });
@@ -100,14 +95,17 @@ test("workspace export preserves file editing without granting shell or whole-co
       out,
       access: "workspace",
     });
-    await accountCommand("device-import", {
-      home: root,
-      bundle: out,
-      workspace: join(root, "files"),
-    });
-    const [agent] = loadAgents(
-      bindingPath(root, "https://tools.example.com", "alice", "pc"),
+    const devicePath = join(root, "devices", "pc.json");
+    savePrivate(
+      devicePath,
+      JSON.stringify(
+        prepareDeviceBundle(JSON.parse(readFileSync(out, "utf8")), {
+          workspace: join(root, "files"),
+        }),
+      ),
     );
+    prepareDeviceFolder(root);
+    const [agent] = loadAgents(devicePath);
     assert.equal(agent.device.access, "workspace");
     assert(agent.device.tools.includes("write"));
     assert(!agent.device.tools.includes("bash"));
@@ -160,67 +158,37 @@ test("manage forwards requested tools; local save failure never creates a remote
   }
 });
 
-test(
-  "device-import --start loads the new binding into the background service",
-  { timeout: 45000 },
-  async () => {
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    const { fileURLToPath } = await import("node:url");
-    const run = promisify(execFile);
-    const cli = fileURLToPath(new URL("../build/cli.js", import.meta.url));
-    const root = mkdtempSync(join(tmpdir(), "chat2pi-import-start-"));
-    const bundle = join(root, "pc.json"),
-      deviceKey = "z".repeat(40);
-    savePrivate(
-      bundle,
-      JSON.stringify({
-        binding: {
-          version: 1,
-          server_url: "https://127.0.0.1:1",
-          account_id: "alice",
-          device_id: "pc",
-          device_name: "pc",
-          device_key_sha256: hash(deviceKey),
-          tools: ["read"],
-        },
-        device_key: deviceKey,
-      }),
-    );
-    try {
-      await run(
-        process.execPath,
-        [
+test("Removed import commands give the folder workflow and do not write configurations", async () => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { fileURLToPath } = await import("node:url");
+  const exec = promisify(execFile);
+  const cli = fileURLToPath(new URL("../build/cli.js", import.meta.url));
+  const root = mkdtempSync(join(tmpdir(), "chat2pi-removed-"));
+  try {
+    for (const command of [
+      "device-import",
+      "login-import",
+      "agent",
+      "gateway-start",
+    ])
+      await assert.rejects(
+        exec(process.execPath, [
           cli,
-          "device-import",
+          command,
           "--home",
           root,
           "--bundle",
-          bundle,
-          "--workspace",
-          join(root, "work"),
-          "--start",
-          "--background",
-        ],
-        { timeout: 35000 },
+          "unused.json",
+        ]),
+        /command has been removed.*chat2pi folder/,
       );
-      const { stdout } = await run(process.execPath, [
-        cli,
-        "status",
-        "--home",
-        root,
-      ]);
-      const status = JSON.parse(stdout);
-      assert.equal(status.running, true);
-      assert.equal(status.active_bindings[0].device_id, "pc");
-    } finally {
-      try {
-        await run(process.execPath, [cli, "stop", "--home", root], {
-          timeout: 10000,
-        });
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
-    }
-  },
-);
+    assert(!existsSync(join(root, "devices")));
+    const { stdout } = await exec(process.execPath, [cli, "--help"]);
+    assert.match(stdout, /folder/);
+    assert(!stdout.includes("device-import"));
+    assert(!stdout.includes("--all"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

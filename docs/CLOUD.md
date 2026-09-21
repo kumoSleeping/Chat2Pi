@@ -54,18 +54,20 @@ MCP URL：`https://YOUR-SERVER/mcp`。身份验证选择 OAuth，客户端设置
 在已有登录凭证的电脑上生成设备文件：
 
 ```sh
-chat2pi device-create my-windows --account owner --access full
+chat2pi device-create my-windows
 ```
 
 复制 `~/Downloads/my-windows.json` 到目标电脑，安装新版客户端后：
 
 ```sh
-chat2pi device-import --bundle ./my-windows.json --access full --start
+chat2pi folder
+# 把 my-windows.json 拖入打开的文件夹
+chat2pi start
 ```
 
 默认自动创建 `~/PiWorkspace`。只读选 `--access read`，工作目录内读写选 `--access workspace`，整机及 Bash 选 `--access full`。Windows Bash 需要 Git for Windows，并在本地凭证配置中设置 `local.shell_path`。代理可用顶层 `proxy_url`，例如 `http://127.0.0.1:7890`。
 
-也可在聊天中绑定并打开领取链接下载文件。CLI `manage --action bind_device` 支持 `--tools read,write,edit,ls,find,grep,bash`，缺省只读。下载丢失时用 `reissue_device` 重新签发，不用删除重建。
+也可在聊天中绑定并打开领取链接下载文件。CLI `manage --action bind_device` 支持 `--tools read,write,edit,ls,find,grep,bash`，缺省启用全部工具。下载丢失时用 `reissue_device` 重新签发，不用删除重建。
 
 新增账号、设备、管理员角色都通过接口写数据库，无需重新部署。不同账号绑定同一台电脑，分别导入独立配置，运行 `chat2pi restart` 同时启动所有绑定。执行身份在云端与本地双重检查；同一系统用户下的任意命令执行不是强账号沙箱。
 
@@ -75,7 +77,7 @@ chat2pi device-import --bundle ./my-windows.json --access full --start
 
 ## 从 0.4 迁移本机目录
 
-先停止旧的 `agent-start --config` 进程。用 `login-import` 导入账号登录文件；把现有绑定 JSON 及同名 `.credentials.json` 一起移动到 `~/.chat2pi/bindings/`（绑定文件以 `.binding.json` 结尾），然后 `chat2pi start`。保留原本地权限、工作目录和代理设置，无需重发凭证。
+先停止旧的 `agent-start --config` 进程。账号文件仅保留在管理电脑的 `~/.chat2pi/accounts/`；把现有绑定 JSON 及同名 `.credentials.json` 一起移动到 `~/.chat2pi/bindings/`（绑定文件以 `.binding.json` 结尾），然后 `chat2pi start`。保留原本地权限、工作目录和代理设置，无需重发凭证。
 
 ## 从 0.3 迁移
 

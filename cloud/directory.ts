@@ -238,7 +238,7 @@ export class Directory extends DurableObject<DirectoryEnv> {
       expires_in: 300,
       credential_type: binding ? "device" : "account",
       message: binding
-        ? "下载设备配置，仅包含这台设备的凭证。导入目标电脑后运行 chat2pi start。领取链接五分钟内有效且仅能使用一次。"
+        ? "下载设备配置，仅包含这台设备的凭证。在目标电脑运行 chat2pi folder，将文件拖入打开的文件夹，再运行 chat2pi start。领取链接五分钟内有效且仅能使用一次。"
         : "下载连接账号凭证，仅包含账号信息和连接密钥；在 ChatGPT 添加插件的授权页面填写该密钥。领取链接五分钟内有效且仅能使用一次。不要把密钥粘贴到聊天中。",
     };
   }

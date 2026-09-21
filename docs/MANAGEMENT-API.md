@@ -67,9 +67,9 @@ chat2pi manage --credentials /private/owner.login.json --action list_devices --t
 
 创建账号、绑定电脑或轮换登录密钥只返回 `claim_url`，不把真实密钥直接放进工具结果。链接五分钟有效，一次领取后作废。GET 不消耗凭证；浏览器点击领取后发 POST 并下载文件。令牌放在 URL fragment 中，不发送给页面 GET 请求。
 
-网页聊天助手应直接交付领取链接，不要代领再尝试制作附件。本地 CLI 可以通过 `POST /claim`、正文 `{"code":"链接 fragment"}` 领取，并把 JSON 直接写入权限受限的本地文件；不得打印响应中的密钥。CLI 提供 `chat2pi claim --url <领取链接> --out /private/bundle.json`，调用时注意领取链接本身也是短期凭证。
+网页聊天助手应直接交付领取链接，不要代领再尝试制作附件。本地 CLI 可以通过 `POST /claim`、正文 `{"code":"链接 fragment"}` 领取，并把 JSON 直接写入权限受限的本地文件；不得打印响应中的密钥。领取链接本身也是短期凭证。精简客户端不再提供 claim 命令。
 
-领取文件会包含账号登录信息，或 `binding` 加 `device_key`。设备文件用 `device-import` 拆分成相同的绑定配置和仅本地的密钥配置。不能把账号登录密钥当设备凭证使用。
+领取文件会包含账号登录信息，或 `binding` 加 `device_key`。目标电脑运行 `chat2pi folder`，把设备文件拖进去，再运行 `chat2pi start`，无需额外账号凭证。不能把账号登录密钥当设备凭证使用。
 
 ## 初始化与撤销
 
@@ -91,11 +91,7 @@ chat2pi manage --credentials /private/owner.login.json --action list_devices --t
 }
 ```
 
-CLI：
-
-```sh
-chat2pi call --credentials /private/owner.login.json --id kumo-macBook-m2 --tool read --args '{"path":"README.md","limit":3}'
-```
+精简客户端不再提供 call 命令；此接口仍可供管理程序直接通过 HTTPS 调用。
 
 返回原始 Pi 工具结果。执行范围始终是凭证所属账号的设备，管理员也不能通过请求参数跨账号执行；管理员权限用于账号与绑定管理。设备权限、本地目录限制、断线和超时规则与 MCP 一致。写入或命令在超时后不得自动重试。
 

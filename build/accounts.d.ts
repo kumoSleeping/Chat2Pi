@@ -149,7 +149,6 @@ export declare const loginSchema: z.ZodObject<{
 }>;
 export type AccountOptions = {
     home?: string;
-    config?: string;
     url?: string;
     account?: string;
     name?: string;
@@ -163,12 +162,27 @@ export type AccountOptions = {
     role?: string;
     confirmation?: string;
     "key-file"?: string;
-    bundle?: string;
-    tool?: string;
-    args?: string;
     access?: string;
     tools?: string;
-    start?: boolean;
-    background?: boolean;
+};
+export declare function prepareDeviceBundle(raw: unknown, o?: Pick<AccountOptions, "workspace" | "access" | "unrestricted">): {
+    device_key: string;
+    local: {
+        workspace: string;
+        tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
+        access: "workspace" | "unrestricted";
+        timeout_seconds: number;
+        shell_path?: string | undefined;
+    };
+    proxy_url?: string | undefined;
+    binding: {
+        device_id: string;
+        tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
+        account_id: string;
+        version: 1;
+        server_url: string;
+        device_name: string;
+        device_key_sha256: string;
+    };
 };
 export declare function accountCommand(command: string, o: AccountOptions): Promise<boolean>;

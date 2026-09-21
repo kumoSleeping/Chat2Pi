@@ -27,8 +27,8 @@ GitHub 仓库附带已编译客户端，使用源码归档安装可避开部分 
 
 | 创建什么 | 下载文件 | 在哪里使用 |
 | --- | --- | --- |
-| 连接账号 | `link_chatgpt_plugin_oauth_<账号名>.json`，包含连接密钥 `login_key`，没有设备密钥 | 在 ChatGPT 添加插件时，将连接密钥填到授权页；需要 CLI 管理时用 `login-import` 导入 |
-| 设备 | `<设备名>.json`，包含该设备的绑定和 `device_key`，没有连接密钥 | 只传到目标电脑，用 `device-import` 导入，再运行 `chat2pi start` |
+| 连接账号 | `link_chatgpt_plugin_oauth_<账号名>.json`，包含连接密钥 `login_key`，没有设备密钥 | 在 ChatGPT 添加插件时，将连接密钥填到授权页；仅管理电脑需要保存该文件 |
+| 设备 | `<设备名>.json`，包含该设备的绑定和 `device_key`，没有连接密钥 | 只传到目标电脑，用 `chat2pi folder` 打开文件夹并拖入，再运行 `chat2pi start` |
 
 创建账号不会同时创建设备，创建设备不会同时下载账号凭证。设备文件中的 `account_id` 仅记录归属，不是账号密钥，也不能代替 ChatGPT 授权。旧文件名仍可导入。
 
@@ -43,13 +43,18 @@ chat2pi device-create WindowsSov8
 默认保存为 `~/Downloads/WindowsSov8.json`，也可用 `--out` 指定文件位置。将文件传到 Windows 后：
 
 ```powershell
-chat2pi.cmd device-import --bundle "$env:USERPROFILE\Downloads\WindowsSov8.json"
+chat2pi.cmd folder
+```
+
+把下载的 `WindowsSov8.json` 拖进打开的文件夹，然后运行：
+
+```powershell
 chat2pi.cmd start
 ```
 
-导入时自动创建 `~/PiWorkspace`。日常只需 `chat2pi start`：启动所有已导入绑定，每 200 毫秒轮询展示新增日志，Ctrl+C 停止本次服务并断开设备。启动时展示工具加载进度；出现 `Device online` 才表示云端连接成功。也可用导入命令的 `--start` 直接进入前台会话。
+Mac 上同样使用 `chat2pi folder` 打开 Finder。设备电脑只需要设备文件，不需要账号凭证，也不需要导入命令。首次启动自动补齐本机设置并创建 `~/PiWorkspace`，文件留在你放入的位置。日常只需 `chat2pi start`：启动所有已导入绑定，每 200 毫秒轮询展示新增日志，Ctrl+C 停止本次服务并断开设备。启动时展示工具加载进度；出现 `Device online` 才表示云端连接成功。
 
-默认创建和导入完整七个工具（`full`，整机访问）。可用 `--access read` 选择只读，或 `--access workspace` 限制为工作目录内读写、不含 Bash。文件中已有的权限限制会保留，启动不会扩大已有绑定的权限；旧的 `--unrestricted` 仍可使用。实际启用的工具会在导入后打印，始终受云端授权上限约束。
+默认创建和导入完整七个工具（`full`，整机访问）。创建设备时可用 `--access read` 选择只读，或 `--access workspace` 限制为工作目录内读写、不含 Bash。文件中已有的权限限制会保留，启动不会扩大已有绑定的权限。实际启用的工具会在导入后打印，始终受云端授权上限约束。
 
 创建流程先保存私密文件，再向服务注册摘要；注册失败时保留文件，修复网络后重跑**同一条命令**即可，不会换密钥。不要删除该文件或更换输出位置来重试。重复导入相同配置也可继续启动。已有同名但不同凭证的设备不会被覆盖。
 
@@ -59,8 +64,8 @@ chat2pi.cmd start
 
 ```text
 .chat2pi/
-  accounts/   独立的 ChatGPT 插件连接账号凭证
-  devices/    每台电脑一个设备配置文件（按服务和账号分目录）
+  accounts/   仅管理电脑保存账号凭证；设备电脑不需要
+  devices/    把下载的设备 JSON 拖到这里即可
   downloads/  领取的凭证包
   runtime/    后台服务状态、控制凭证和日志
 ```
@@ -78,9 +83,11 @@ chat2pi manage --action me
 
 前台 `start` 发现已有服务时会提示先 `stop`，不会接管或停止别的会话；后台启动重复运行不会重复启动。前台新增或修改绑定后 Ctrl+C 再 `start`，后台模式使用 `restart --background`；不自动监视文件变化。`status` 的运行状态不等于云端在线状态，在线设备用 `manage --action list_devices` 查询。`restart` 默认也会前台显示日志。后台管理使用经过认证的本机控制接口，适用于 macOS / Linux / Windows，不包含开机自启。
 
-通过 `login-import --bundle login.json` 导入账号凭证；只有一个账号时管理命令自动选择，多个账号用 `--account` 指定，同名账号分属不同服务时再加 `--url`。可用 `--home` 指定独立的配置目录。设备私密文件保留本地权限限制，实际权限仍取云端与本地交集。
+账号凭证只在管理电脑保存到 `~/.chat2pi/accounts/`，或用 `--credentials 文件` 指定；只有一个账号时管理命令自动选择，多个账号用 `--account` 指定，同名账号分属不同服务时再加 `--url`。可用 `--home` 指定独立的配置目录。设备私密文件保留本地权限限制，实际权限仍取云端与本地交集。
 
-Windows 文件工具可以直接运行。使用 Bash 工具需额外安装 Git for Windows，并在私密配置的 `local.shell_path` 指定 Bash 路径。Windows 尚未实机验证。
+Windows 文件工具可以直接运行。使用 Bash 工具需额外安装 Git for Windows，并在私密配置的 `local.shell_path` 指定 Bash 路径。Windows、macOS 已覆盖自动测试；Windows 实际控制台 Ctrl+C 仍需现场验收。
+
+日常命令只有 `folder`、`start`、`stop`、`restart`、`status`。测试版已移除 `device-import`、`login-import`、单配置 `agent` / `gateway-*` 等旧命令；统一使用设备文件夹。管理电脑额外保留 `device-create`、`manage` 和首次部署用的 `bootstrap`。
 
 ## 更新
 

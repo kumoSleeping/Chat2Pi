@@ -33,4 +33,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npx tsx --test --test-concurrency=1 tests-ts/service.test.ts tests-ts/device-create.test.ts tests-ts/migration.test.ts
+      - run: npx tsx --test --test-concurrency=1 tests-ts/service.test.ts tests-ts/device-create.test.ts tests-ts/migration.test.ts tests-ts/device-folder.test.ts

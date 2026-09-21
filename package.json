@@ -1,6 +1,6 @@
 {
   "name": "chat2pi",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Self-hosted ChatGPT access to local Pi tools with account and device isolation",
   "type": "module",
   "bin": {

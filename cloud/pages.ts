@@ -76,7 +76,7 @@ button.onclick=async()=>{
     const device=!!value.binding;
     link.href=url;link.download=device?value.binding.device_id+'.json':'link_chatgpt_plugin_oauth_'+value.account_id+'.json';link.textContent='Download again';
     document.querySelector('h1').textContent=device?'Device configuration':'Connection account';
-    const help=document.createElement('p');help.className='intro';help.textContent=device?'Import this file on the target computer, then run chat2pi start. It contains only the device credentials.':'Keep this account file for ChatGPT setup. Enter its login_key in the Connection key field when authorizing the plugin. It contains no device credentials.';result.append(help);
+    const help=document.createElement('p');help.className='intro';help.textContent=device?'On the target computer, run chat2pi folder, drop this file into the opened folder, then run chat2pi start.':'Keep this account file for ChatGPT setup. Enter its login_key in the Connection key field when authorizing the plugin. It contains no device credentials.';result.append(help);
     result.append(document.createTextNode(link.download),document.createElement('br'),link);link.click();
     button.textContent='Claimed';
   }catch(error){result.dataset.error='true';result.textContent=error instanceof TypeError?'Connection lost. Try again, or request new credentials if already claimed.':error.message;button.disabled=false;button.textContent='Try again';}

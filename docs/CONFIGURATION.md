@@ -1,11 +1,13 @@
 # 两类配置文件
 
+设备电脑只需要设备 JSON，不需要账号文件。运行 `chat2pi folder` 打开配置文件夹，把下载的 `<设备名>.json` 拖进去，再运行 `chat2pi start`。首次启动自动补齐本机设置；不再提供 `device-import` 或 `login-import` 命令。
+
 默认根目录为 `~/.chat2pi`，Windows 为 `%USERPROFILE%\.chat2pi`。账号和设备分开保存：
 
 ```text
 .chat2pi/
   accounts/<服务标识>/link_chatgpt_plugin_oauth_<账号名>.json
-  devices/<服务标识>/<账号名>/<设备名>.json
+  devices/<设备名>.json  # 直接拖入；已有子目录中的设备文件也会读取
   downloads/   领取的文件
   runtime/     服务状态和日志
 ```
@@ -24,7 +26,7 @@
 }
 ```
 
-在 ChatGPT 添加插件时，将 `login_key` 填入授权页的 Connection key。日常启动设备无需这个文件；需要在命令行管理账号或创建设备时，可以用 `login-import --bundle 文件` 导入。账号角色由云端决定，客户端不能声明。密钥轮换或停用账号会撤销已有 OAuth 授权。
+在 ChatGPT 添加插件时，将 `login_key` 填入授权页的 Connection key。日常启动设备无需这个文件；需要在命令行管理账号或创建设备时，将文件放在管理电脑的 `~/.chat2pi/accounts/`，或使用 `--credentials 文件`。账号角色由云端决定，客户端不能声明。密钥轮换或停用账号会撤销已有 OAuth 授权。
 
 ## 设备文件
 
@@ -57,7 +59,7 @@
 
 ## 更新时自动迁移和清理
 
-升级后首次 `start` / `restart`，以及导入账号或设备前，会自动迁移默认存储（或指定的 `--home`）：
+升级后首次 `start` / `restart`，会自动迁移默认存储（或指定的 `--home`）：
 
 - `accounts/*.login.json` 改为新的连接账号文件名。
 - `bindings/*.binding.json` 与对应 `.credentials.json` 合并为一个设备文件。
@@ -65,6 +67,6 @@
 
 迁移保留原密钥、设备归属、工具权限、工作目录、代理和超时等设置，不重新绑定设备，也不扩大旧配置的权限。全部新文件写入并验证成功后，删除被替代的旧文件。中途退出可在下次启动继续清理；目标文件冲突或密钥不匹配时停止并保留原文件。
 
-不会扫描或删除 Downloads、历史 archive、项目目录和任意 `--config` 路径。没有云端绑定信息的早期独立 agent / gateway 配置保持兼容，不猜测账号归属。显式指定 `--config` / `--credentials` 的旧式导入仍支持双文件格式。
+不会扫描或删除 Downloads、历史 archive、项目目录和任意 `--config` 路径。没有云端绑定信息的早期独立 agent / gateway 配置保持兼容，不猜测账号归属。旧的单配置启动和导入命令已移除。
 
 Windows 文件权限继承当前系统用户目录的 ACL。配置包含密钥，不要提交 Git 或放到共享目录。
