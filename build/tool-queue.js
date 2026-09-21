@@ -28,9 +28,14 @@ export class ToolQueue {
                 options.signal?.removeEventListener("abort", cancel);
                 controller.signal.removeEventListener("abort", aborted);
             };
-            const cancel = () => controller.abort(new Error(started
-                ? "Operation cancelled; side effects may have occurred. Do not retry automatically."
-                : "Queued operation cancelled before execution; not executed."));
+            const cancel = () => {
+                const reason = options.signal?.reason;
+                controller.abort(started && reason instanceof Error && reason.name !== "AbortError"
+                    ? reason
+                    : new Error(started
+                        ? "Operation cancelled; side effects may have occurred. Do not retry automatically."
+                        : "Queued operation cancelled before execution; not executed."));
+            };
             const expire = () => controller.abort(new Error(started
                 ? "Tool timed out; side effects may have occurred. Do not retry automatically."
                 : "Queue wait timed out; not executed."));

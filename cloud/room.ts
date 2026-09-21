@@ -11,6 +11,9 @@ type Attachment = {
   tokenHash: string;
   at: number;
   ready: boolean;
+  instance?: string;
+  generation?: number;
+  superseded?: boolean;
   tools: string[];
   platform?: string;
   pi_version?: string;
@@ -38,7 +41,14 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
   async registered(account: string) {
     return await this.directory().registered(account);
   }
+  private current(ws: WebSocket) {
+    return (
+      ws.readyState === 1 &&
+      !(ws.deserializeAttachment() as Attachment).superseded
+    );
+  }
   async live(ws: WebSocket) {
+    if (!this.current(ws)) return false;
     const a = ws.deserializeAttachment() as Attachment;
     const registered = await this.directory().checkBinding(
       a.account,
@@ -48,7 +58,7 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
     const last =
       this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? a.at;
     return (
-      ws.readyState === 1 &&
+      this.current(ws) &&
       Date.now() - Math.max(last, a.at) < 70000 &&
       !!registered
     );
@@ -76,6 +86,23 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
     )
       return new Response("Forbidden", { status: 403 });
     const id = request.headers.get("X-Device-Id");
+    const instance = request.headers.get("X-Agent-Instance") ?? undefined;
+    const generationText = request.headers.get("X-Agent-Connection");
+    const generation =
+      generationText === null ? undefined : Number(generationText);
+    if (
+      (instance === undefined && generationText !== null) ||
+      (instance !== undefined &&
+        (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(
+          instance,
+        ) ||
+          !generationText ||
+          !/^[1-9]\d*$/.test(generationText) ||
+          !Number.isSafeInteger(generation)))
+    )
+      return new Response("Invalid agent instance or connection generation", {
+        status: 400,
+      });
     const account = request.headers.get("X-Account-Id") ?? "";
     const d = (await this.registered(account)).find((d) => d.device_id === id);
     const bearer = request.headers.get("Authorization") ?? "";
@@ -85,12 +112,28 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
       (await digest(bearer.slice(7))) !== d.device_key_sha256
     )
       return new Response("Unauthorized", { status: 401 });
+    const previous = (await this.sockets()).filter(
+      (ws) => (ws.deserializeAttachment() as Attachment).id === id,
+    );
+    // Instance identity only permits takeover after device authentication. Old
+    // clients and different processes retain the duplicate-connection guard.
     if (
-      (await this.sockets()).some(
-        (ws) => (ws.deserializeAttachment() as Attachment).id === id,
+      previous.some(
+        (ws) =>
+          !instance ||
+          (ws.deserializeAttachment() as Attachment).instance !== instance,
       )
     )
       return new Response("Already connected", { status: 409 });
+    // A delayed handshake from an earlier attempt cannot replace a newer one.
+    if (
+      previous.some(
+        (ws) =>
+          ((ws.deserializeAttachment() as Attachment).generation ?? 0) >=
+          (generation ?? 0),
+      )
+    )
+      return new Response("Stale connection attempt", { status: 409 });
     const existingAccount = await this.ctx.storage.get<string>("account");
     if (existingAccount && existingAccount !== account)
       return new Response("Wrong account", { status: 403 });
@@ -103,8 +146,20 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
       tokenHash: d.device_key_sha256,
       at: Date.now(),
       ready: false,
+      instance,
+      generation,
       tools: [],
     } satisfies Attachment);
+    for (const ws of previous) {
+      // Persist the fence before closing: late messages and RPC continuations
+      // must not revive the socket, including after Durable Object hibernation.
+      const a = ws.deserializeAttachment() as Attachment;
+      ws.serializeAttachment({ ...a, ready: false, superseded: true });
+      this.fail(ws);
+      try {
+        ws.close(4001, "Connection replaced");
+      } catch {}
+    }
     return new Response(null, { status: 101, webSocket: client });
   }
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
@@ -120,8 +175,10 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
       if (!a.ready) {
         const d = (await this.registered(a.account)).find(
           (d) => d.device_id === a.id,
-        )!;
+        );
+        if (!this.current(ws)) throw Error("Connection replaced");
         if (
+          !d ||
           m.type !== "hello" ||
           m.protocol !== 1 ||
           m.account_id !== a.account ||
@@ -195,7 +252,9 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
     const online = await this.sockets();
     const devices = (await this.registered(account)).map((d) => {
       const socket = online.find(
-        (ws) => (ws.deserializeAttachment() as Attachment).id === d.device_id,
+        (ws) =>
+          this.current(ws) &&
+          (ws.deserializeAttachment() as Attachment).id === d.device_id,
       );
       const a = socket?.deserializeAttachment() as Attachment | undefined;
       return {
@@ -257,8 +316,11 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
     });
     if (!ws) throw Error("Target device offline or unknown; call list_devices");
     const a = ws.deserializeAttachment() as Attachment;
-    const d = (await this.registered(account)).find((d) => d.device_id === id)!;
-    if (!a.tools.includes(name) || !(d.tools as string[]).includes(name))
+    const d = (await this.registered(account)).find((d) => d.device_id === id);
+    // The binding lookup yielded; a reconnect may have fenced this socket.
+    if (!this.current(ws))
+      throw Error("Target connection changed before dispatch; not executed.");
+    if (!d || !a.tools.includes(name) || !(d.tools as string[]).includes(name))
       throw Error("Tool not allowed on target device");
     if (this.cancelled.has(key))
       throw Error("Operation cancelled before dispatch; not executed.");
