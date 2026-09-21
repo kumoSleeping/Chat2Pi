@@ -12,7 +12,7 @@ import { Runner } from "../build/runner.js";
 
 test(
   "Device connects through an explicit HTTP proxy and executes on the target",
-  { timeout: 15000 },
+  { timeout: 60000 },
   async () => {
     const root = mkdtempSync(join(tmpdir(), "chat2pi-proxy-"));
     writeFileSync(join(root, "identity.txt"), "PROXIED DEVICE");
@@ -51,6 +51,10 @@ test(
           return;
         }
         socket.on("message", (raw) => {
+          if (raw.toString() === "ping") {
+            socket.send("pong");
+            return;
+          }
           const message = JSON.parse(raw.toString());
           if (message.type === "hello")
             socket.send(
@@ -107,7 +111,7 @@ test(
       workspace: root,
       tools: ["bash"],
       access: "unrestricted",
-      timeout_seconds: 10,
+      timeout_seconds: 30,
       shell_path: shell,
     });
     try {

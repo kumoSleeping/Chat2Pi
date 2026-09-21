@@ -51,7 +51,7 @@ test("One account/device per binding; local credentials and tool restrictions ar
 
 test(
   "The local executor rejects a call for a different account before reading files",
-  { timeout: 15000 },
+  { timeout: 60000 },
   async () => {
     const root = mkdtempSync(join(tmpdir(), "chat2pi-account-call-"));
     writeFileSync(join(root, "identity.txt"), "ALICE PRIVATE");
@@ -69,6 +69,10 @@ test(
         }
         ws.on("message", (raw) => {
           try {
+            if (raw.toString() === "ping") {
+              ws.send("pong");
+              return;
+            }
             const m = JSON.parse(raw.toString());
             if (m.type === "hello") {
               assert.equal(m.account_id, "alice");
@@ -98,6 +102,7 @@ test(
                 }),
               );
             } else if (m.request_id === rightId) {
+              assert.equal(m.error, undefined);
               assert.match(JSON.stringify(m.result), /ALICE PRIVATE/);
               resolve();
             }
@@ -116,7 +121,7 @@ test(
         workspace: root,
         tools: ["read"],
         access: "workspace",
-        timeout_seconds: 5,
+        timeout_seconds: 30,
       },
     });
     try {

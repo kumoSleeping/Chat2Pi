@@ -46,6 +46,8 @@ const { values, positionals } = parseArgs({
     confirmation: { type: "string" },
     "key-file": { type: "string" },
     bundle: { type: "string" },
+    tool: { type: "string" },
+    args: { type: "string" },
   },
 });
 const configFile = resolve(values.config ?? ".local/gateway.json");
@@ -321,7 +323,7 @@ async function main() {
     }
   } else {
     console.log(
-      `Chat2Pi — one plugin, multiple computers\n\nbootstrap --url https://host --account admin --key-file bootstrap-key --out login.json\nmanage --credentials login.json --action me|list_accounts|create_account|bind_device|list_devices|set_role|disable_account|enable_account|unbind_device|rotate_login [--target account] [--id device] [--role admin|member] [--confirmation id]\nclaim --url claim-link --out bundle.json\ndevice-import --bundle bundle.json --config binding.json --workspace path [--unrestricted]\nagent --config binding.json [--credentials local.json]\nconfig-check --config binding.json\n\nBackground agent:\nagent-start | agent-stop | agent-restart | agent-status --config agent.json\n\nLegacy local gateway:\ninit --url https://host --id computer [--workspace path] [--unrestricted] [--cloudflare path]\nadd-device --id computer --workspace /path/on/target [--out file] [--unrestricted]\nstart | stop | restart | status\nrun                 foreground gateway + optional Cloudflare tunnel\nagent --config file foreground device client\n\nAll commands accept --config file (default .local/gateway.json).\nPi versions are not restricted. npm update installs the currently available release.`,
+      `Chat2Pi — one plugin, multiple computers\n\nbootstrap --url https://host --account admin --key-file bootstrap-key --out login.json\nmanage --credentials login.json --action me|list_accounts|create_account|bind_device|list_devices|set_role|disable_account|enable_account|unbind_device|rotate_login [--target account] [--id device] [--role admin|member] [--confirmation id]\ncall --credentials login.json --id computer --tool read|write|edit|ls|find|grep|bash [--args JSON]\nclaim --url claim-link --out bundle.json\ndevice-import --bundle bundle.json --config binding.json --workspace path [--unrestricted]\nagent --config binding.json [--credentials local.json]\nconfig-check --config binding.json\n\nBackground agent:\nagent-start | agent-stop | agent-restart | agent-status --config agent.json\n\nLegacy local gateway:\ninit --url https://host --id computer [--workspace path] [--unrestricted] [--cloudflare path]\nadd-device --id computer --workspace /path/on/target [--out file] [--unrestricted]\nstart | stop | restart | status\nrun                 foreground gateway + optional Cloudflare tunnel\nagent --config file foreground device client\n\nAll commands accept --config file (default .local/gateway.json).\nPi versions are not restricted. npm update installs the currently available release.`,
     );
   }
 }

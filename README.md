@@ -11,6 +11,8 @@ ChatGPT ── OAuth / MCP ── Cloudflare Worker
                               └── 账号 B 的连接 ── WSS 443 ── Mac / Windows
 ```
 
+智能体也可以从私密凭证文件直接调用 HTTPS 管理接口和电脑工具，无需经过 ChatGPT；详见 [智能体接入](docs/MANAGEMENT-API.md)。
+
 ## 安装客户端
 
 安装 Node.js 22.19 或更新版本，以及 Git，然后：

@@ -12,7 +12,7 @@ import {
 import { DeviceRoom, type RoomEnv } from "./room";
 import catalog from "./catalog.json";
 import { Directory, type Identity } from "./directory";
-import { identifier, manageTool } from "../ts/manifest";
+import { identifier, manageTool, directCallSchema } from "../ts/manifest";
 export { DeviceRoom, Directory };
 interface Env extends RoomEnv {
   ROOM: DurableObjectNamespace<DeviceRoom>;
@@ -230,7 +230,10 @@ const defaultHandler: ExportedHandler<Env> = {
         ),
       );
     }
-    if (url.pathname === "/api/manage" && request.method === "POST") {
+    if (
+      ["/api/manage", "/api/call"].includes(url.pathname) &&
+      request.method === "POST"
+    ) {
       if (!(await r.limit("api-login", 60)))
         return new Response("Rate limited", { status: 429 });
       const identity = await r.authenticate(
@@ -238,6 +241,17 @@ const defaultHandler: ExportedHandler<Env> = {
         (request.headers.get("Authorization") ?? "").replace(/^Bearer /, ""),
       );
       if (!identity) return new Response("Unauthorized", { status: 401 });
+      if (url.pathname === "/api/call") {
+        const input = directCallSchema.parse(await request.json());
+        return Response.json(
+          await room(env, identity.accountId).call(
+            identity.accountId,
+            input.device_id,
+            input.name,
+            input.arguments,
+          ),
+        );
+      }
       return Response.json(await manage(env, identity, await request.json()));
     }
     if (url.pathname === "/claim" && request.method === "POST") {
@@ -324,7 +338,9 @@ export default {
       const reader = request.body.getReader(),
         chunks: Uint8Array[] = [];
       let length = 0;
-      const limit = url.pathname === "/mcp" ? 1048576 : 16384;
+      const limit = ["/mcp", "/api/call"].includes(url.pathname)
+        ? 1048576
+        : 16384;
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;

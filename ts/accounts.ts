@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import {
   bindingSchema,
+  directCallSchema,
   identifier,
   manageSchema,
   toolName,
@@ -81,6 +82,8 @@ export type AccountOptions = {
   confirmation?: string;
   "key-file"?: string;
   bundle?: string;
+  tool?: string;
+  args?: string;
 };
 const json = (v: unknown) => JSON.stringify(v, null, 2) + "\n";
 async function post(
@@ -95,7 +98,7 @@ async function post(
     redirect: "error",
     headers: { "Content-Type": "application/json", Origin: base, ...headers },
     body: json(body),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(path === "/api/call" ? 320000 : 30000),
   });
   if (!response.ok)
     throw Error(
@@ -108,9 +111,14 @@ export async function accountCommand(
   o: AccountOptions,
 ): Promise<boolean> {
   if (
-    !["bootstrap", "manage", "claim", "device-import", "config-check"].includes(
-      command,
-    )
+    ![
+      "bootstrap",
+      "manage",
+      "call",
+      "claim",
+      "device-import",
+      "config-check",
+    ].includes(command)
   )
     return false;
   if (command === "config-check") {
@@ -176,6 +184,27 @@ export async function accountCommand(
     });
     savePrivate(resolve(o.out), json(result));
     console.log(`Credentials saved privately: ${resolve(o.out)}`);
+    return true;
+  }
+  if (command === "call") {
+    if (!o.credentials || !o.id || !o.tool)
+      throw Error("call requires --credentials --id --tool [--args JSON]");
+    const login = loginSchema.parse(
+      JSON.parse(readPrivate(resolve(o.credentials))),
+    );
+    const input = directCallSchema.parse({
+      device_id: o.id,
+      name: o.tool,
+      arguments: JSON.parse(o.args ?? "{}"),
+    });
+    console.log(
+      json(
+        await post(login.server_url, "/api/call", input, {
+          Authorization: "Bearer " + login.login_key,
+          "X-Account-Id": login.account_id,
+        }),
+      ),
+    );
     return true;
   }
   if (!o.credentials || !o.action)

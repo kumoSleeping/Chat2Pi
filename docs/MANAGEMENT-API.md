@@ -75,3 +75,23 @@ chat2pi manage --credentials /private/owner.login.json --action list_devices --t
 停用账号和轮换登录密钥会使旧 OAuth 会话失效。设备解绑后拒绝后续调用；已开始的操作不能保证回滚。管理员角色改变按数据库实时校验，不依赖旧令牌里的角色声明。
 
 接口使用 HTTPS。含 Origin 的请求必须来自服务自身域名；未携带 Origin 的 CLI/智能体请求仍必须验证凭证。当前设有基础速率限制和账号/设备容量限制，适用于小规模私有部署，不面向匿名公众注册。
+
+## 直接调用电脑工具
+
+智能体可以使用同一份账号凭证直接调用 `POST /api/call`，无需先做浏览器 OAuth。认证头与 `/api/manage` 相同，正文示例：
+
+```json
+{
+  "device_id": "kumo-macBook-m2",
+  "name": "read",
+  "arguments": { "path": "README.md", "limit": 3 }
+}
+```
+
+CLI：
+
+```sh
+chat2pi call --credentials /private/owner.login.json --id kumo-macBook-m2 --tool read --args '{"path":"README.md","limit":3}'
+```
+
+返回原始 Pi 工具结果。执行范围始终是凭证所属账号的设备，管理员也不能通过请求参数跨账号执行；管理员权限用于账号与绑定管理。设备权限、本地目录限制、断线和超时规则与 MCP 一致。写入或命令在超时后不得自动重试。

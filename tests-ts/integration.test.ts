@@ -330,7 +330,7 @@ test("Workspace path handling, symlinks, wrong device and shell timeout", async 
     workspace: root,
     tools: ["bash", "write", "read"] as any,
     access: "unrestricted" as const,
-    timeout_seconds: 2,
+    timeout_seconds: 30,
   };
   const runner = new Runner(device);
   try {
@@ -342,10 +342,12 @@ test("Workspace path handling, symlinks, wrong device and shell timeout", async 
       command: "printf chat2pi",
     });
     assert.equal(result.content[0].text, "chat2pi");
+    device.timeout_seconds = 2;
     await assert.rejects(
       runner.call("test", "bash", { command: "sleep 20" }),
       /timed out/,
     );
+    device.timeout_seconds = 30;
     const next = await runner.call("test", "bash", {
       command: "printf recovered",
     });

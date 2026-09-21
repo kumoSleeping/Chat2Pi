@@ -23,7 +23,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "tsx --test tests-ts/*.test.ts",
+    "test": "tsx --test --test-concurrency=1 tests-ts/*.test.ts",
     "prepack": "npm run build",
     "prepare": "npm run build",
     "test:cloud": "npm --prefix cloud test"

@@ -9,6 +9,7 @@ const mf = new Miniflare(
     workers: [
       {
         name: "test",
+        rootPath: fileURLToPath(new URL("../", import.meta.url)),
         modules: true,
         scriptPath: fileURLToPath(
           new URL("../.local/cloud-bundle/worker.js", import.meta.url),
@@ -269,6 +270,38 @@ try {
   assert.equal(copied.status, 401);
   await device(ab, "ALICE ONLY");
   await device(bb, "BOB ONLY");
+  const direct = await ok(
+    await post(
+      "/api/call",
+      {
+        device_id: "same-pc",
+        name: "read",
+        arguments: { path: "identity.txt" },
+      },
+      headers(alice),
+    ),
+  );
+  assert.match(JSON.stringify(direct), /ALICE ONLY/);
+  assert(!JSON.stringify(direct).includes("BOB ONLY"));
+  assert.equal(
+    (
+      await post(
+        "/api/call",
+        {
+          account_id: "bob",
+          device_id: "same-pc",
+          name: "read",
+          arguments: {},
+        },
+        headers(alice),
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await post("/api/call", { device_id: "same-pc", name: "read" })).status,
+    401,
+  );
   const at = await oauth(alice),
     bt = await oauth(bob);
   const tools = await ok(await rpc(at, "tools/list", {}));

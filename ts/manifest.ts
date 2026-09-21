@@ -88,3 +88,11 @@ export const manageTool = {
     openWorldHint: false,
   },
 };
+
+export const directCallSchema = z
+  .object({
+    device_id: identifier,
+    name: toolName,
+    arguments: z.record(z.unknown()).default({}),
+  })
+  .strict();
