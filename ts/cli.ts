@@ -52,6 +52,9 @@ const { values, positionals } = parseArgs({
     bundle: { type: "string" },
     tool: { type: "string" },
     args: { type: "string" },
+    access: { type: "string" },
+    tools: { type: "string" },
+    start: { type: "boolean" },
   },
 });
 const configFile = resolve(values.config ?? ".local/gateway.json");
@@ -120,7 +123,14 @@ async function main() {
     (await serviceCommand(command, homeDirectory(values.home)))
   )
     return;
-  if (await accountCommand(command, values)) return;
+  if (
+    await accountCommand(command, {
+      ...values,
+      id:
+        values.id ?? (command === "device-create" ? positionals[1] : undefined),
+    })
+  )
+    return;
   if (command === "init") {
     if (existsSync(configFile))
       throw new Error("Config already exists; not overwritten");
@@ -346,7 +356,7 @@ async function main() {
     }
   } else {
     console.log(
-      `Chat2Pi — one plugin, multiple computers\n\nstart | stop | restart | status [--all] (automatically use ~/.chat2pi)\nbootstrap --url https://host --account admin --key-file bootstrap-key\nmanage [--account account] --action me|list_accounts|create_account|bind_device|list_devices|set_role|disable_account|enable_account|unbind_device|rotate_login [--target account] [--id device] [--role admin|member] [--confirmation id]\ncall [--account account] --id computer --tool read|write|edit|ls|find|grep|bash [--args JSON]\nclaim --url claim-link --out bundle.json\nlogin-import --bundle login.json\ndevice-import --bundle bundle.json --workspace path [--config binding.json] [--unrestricted]\nagent --config binding.json [--credentials local.json]\nconfig-check --config binding.json\n\nBackground agent:\nagent-start | agent-stop | agent-restart | agent-status --config agent.json\n\nLegacy local gateway:\ninit --url https://host --id computer [--workspace path] [--unrestricted] [--cloudflare path]\nadd-device --id computer --workspace /path/on/target [--out file] [--unrestricted]\ngateway-start | gateway-stop | gateway-restart | gateway-status --config file\nrun                 foreground gateway + optional Cloudflare tunnel\nagent --config file foreground device client\n\nDefault storage: ~/.chat2pi (Windows: %USERPROFILE%\\.chat2pi). Use --home to override. Legacy gateway commands require --config.\nPi versions are not restricted. npm update installs the currently available release.`,
+      `Chat2Pi — one plugin, multiple computers\n\nstart | stop | restart | status [--all] (automatically use ~/.chat2pi)\nbootstrap --url https://host --account admin --key-file bootstrap-key\nmanage [--account account] --action me|list_accounts|create_account|bind_device|list_devices|set_role|disable_account|enable_account|unbind_device|rotate_login [--target account] [--id device] [--role admin|member] [--confirmation id]\ncall [--account account] --id computer --tool read|write|edit|ls|find|grep|bash [--args JSON]\ndevice-create <name> [--account account] [--access read|workspace|full] [--out file]\nclaim --url claim-link --out bundle.json\nlogin-import --bundle login.json\ndevice-import --bundle bundle.json [--workspace path] [--access read|workspace|full] [--start]\nagent --config binding.json [--credentials local.json]\nconfig-check --config binding.json\n\nBackground agent:\nagent-start | agent-stop | agent-restart | agent-status --config agent.json\n\nLegacy local gateway:\ninit --url https://host --id computer [--workspace path] [--unrestricted] [--cloudflare path]\nadd-device --id computer --workspace /path/on/target [--out file] [--unrestricted]\ngateway-start | gateway-stop | gateway-restart | gateway-status --config file\nrun                 foreground gateway + optional Cloudflare tunnel\nagent --config file foreground device client\n\nDefault storage: ~/.chat2pi (Windows: %USERPROFILE%\\.chat2pi). Use --home to override. Legacy gateway commands require --config.\nPi versions are not restricted. npm update installs the currently available release.`,
     );
   }
 }

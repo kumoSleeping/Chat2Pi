@@ -252,6 +252,76 @@ try {
     (await api(alice, { action: "set_role", role: "admin" })).status,
     400,
   );
+  const localKey = randomBytes(32).toString("hex");
+  const localRequest = {
+    action: "bind_device",
+    device_id: "local-export",
+    name: "Local",
+    device_key_sha256: createHash("sha256").update(localKey).digest("hex"),
+    tools: ["read", "write", "bash"],
+  };
+  const local = await ok(await api(alice, localRequest));
+  assert.equal(local.claim_url, undefined);
+  assert.deepEqual(await ok(await api(alice, localRequest)), local);
+  assert.equal(
+    (await api(alice, { ...localRequest, device_key_sha256: "0".repeat(64) }))
+      .status,
+    400,
+  );
+  assert.equal(
+    (await api(alice, { ...localRequest, tools: ["read"] })).status,
+    400,
+  );
+  assert.equal(
+    (await api(bob, { ...localRequest, account_id: "alice" })).status,
+    400,
+  );
+  const pendingList = await ok(await api(alice, { action: "list_devices" }));
+  assert.equal(
+    pendingList.devices.find((d) => d.device_id === "local-export").activation,
+    "pending",
+  );
+  const originalTicket = await ok(
+    await api(alice, { action: "bind_device", device_id: "recover-download" }),
+  );
+  const replacement = await change(alice, {
+    action: "reissue_device",
+    device_id: "recover-download",
+  });
+  assert.notEqual(
+    replacement.binding.device_key_sha256,
+    originalTicket.binding.device_key_sha256,
+  );
+  assert.equal(
+    (
+      await post("/claim", {
+        code: new URL(originalTicket.claim_url).hash.slice(1),
+      })
+    ).status,
+    400,
+  );
+  const replacementBundle = await getClaim(replacement);
+  assert.equal(
+    createHash("sha256").update(replacementBundle.device_key).digest("hex"),
+    replacement.binding.device_key_sha256,
+  );
+  const replacedLocal = await change(alice, {
+    action: "reissue_device",
+    device_id: "local-export",
+  });
+  assert.notEqual(
+    replacedLocal.binding.device_key_sha256,
+    local.binding.device_key_sha256,
+  );
+  assert.equal((await api(alice, localRequest)).status, 400);
+  await change(alice, { action: "unbind_device", device_id: "local-export" });
+  await change(alice, {
+    action: "unbind_device",
+    device_id: "recover-download",
+  });
+  console.log(
+    "Local device registration is idempotent; reissue revokes old tickets and keys",
+  );
   const ab = await getClaim(
     await ok(await api(alice, { action: "bind_device", device_id: "same-pc" })),
   );
@@ -306,9 +376,9 @@ try {
     bt = await oauth(bob);
   const tools = await ok(await rpc(at, "tools/list", {}));
   assert.equal(tools.result.tools.length, 9);
-  assert.equal(
+  assert.match(
     tools.result.tools.find((t) => t.name === "manage").description,
-    "管理账号和设备。",
+    /reissue_device/,
   );
   for (const [token, expected, other] of [
     [at, "ALICE ONLY", "BOB ONLY"],

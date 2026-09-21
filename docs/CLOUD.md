@@ -51,21 +51,21 @@ MCP URL：`https://YOUR-SERVER/mcp`。身份验证选择 OAuth，客户端设置
 
 ## 添加电脑
 
-在聊天中请求绑定电脑，或：
+在已有登录凭证的电脑上生成设备文件：
 
 ```sh
-node build/cli.js manage --account owner --action bind_device --id my-windows --name Windows
+chat2pi device-create my-windows --account owner --access full
 ```
 
-默认云端开放四个只读工具。要开放其他工具，可通过 `manage` 工具或 HTTPS API 的 `tools` 参数指定。领取链接五分钟有效，页面点击后下载 JSON。复制下载文件到目标电脑，安装客户端：
+复制 `~/Downloads/my-windows.json` 到目标电脑，安装新版客户端后：
 
 ```sh
-npm install -g https://github.com/kumoSleeping/Chat2Pi/archive/refs/heads/main.tar.gz
-chat2pi device-import --bundle ./chat2pi-credentials.json --workspace ./PiWorkspace
-chat2pi start
+chat2pi device-import --bundle ./my-windows.json --access full --start
 ```
 
-先创建工作目录。需要 Bash / 写入时，云端要允许对应工具，本地导入时也需显式选择 `--unrestricted`。Windows Bash 需要 Git for Windows，并在本地凭证配置中设置 `local.shell_path`。代理可用顶层 `proxy_url`，例如 `http://127.0.0.1:7890`。
+默认自动创建 `~/PiWorkspace`。只读选 `--access read`，工作目录内读写选 `--access workspace`，整机及 Bash 选 `--access full`。Windows Bash 需要 Git for Windows，并在本地凭证配置中设置 `local.shell_path`。代理可用顶层 `proxy_url`，例如 `http://127.0.0.1:7890`。
+
+也可在聊天中绑定并打开领取链接下载文件。CLI `manage --action bind_device` 支持 `--tools read,write,edit,ls,find,grep,bash`，缺省只读。下载丢失时用 `reissue_device` 重新签发，不用删除重建。
 
 新增账号、设备、管理员角色都通过接口写数据库，无需重新部署。不同账号绑定同一台电脑，分别导入独立配置，运行 `chat2pi restart` 同时启动所有绑定。执行身份在云端与本地双重检查；同一系统用户下的任意命令执行不是强账号沙箱。
 

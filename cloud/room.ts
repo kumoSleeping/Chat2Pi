@@ -198,6 +198,7 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
       return {
         device_id: d.device_id,
         device_name: d.device_name,
+        activation: d.activation,
         status: a?.ready ? "online" : "offline",
         tools: a?.ready ? a.tools : d.tools,
         platform: a?.platform,

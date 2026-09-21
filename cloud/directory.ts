@@ -22,6 +22,7 @@ export interface DirectoryEnv {
   BOOTSTRAP_KEY_SHA256: string;
 }
 interface State {
+  activated?: Record<string, boolean>;
   initialized: boolean;
   accounts: Record<string, Account>;
   bindings: Record<string, Binding>;
@@ -145,15 +146,36 @@ export class Directory extends DurableObject<DirectoryEnv> {
   async registered(account: string) {
     const s = await this.state();
     return s.accounts[account]?.enabled
-      ? Object.values(s.bindings).filter((b) => b.account_id === account)
+      ? Object.values(s.bindings)
+          .filter((b) => b.account_id === account)
+          .map((b) => ({
+            ...b,
+            activation:
+              s.activated?.[key(account, b.device_id)] === false
+                ? "pending"
+                : s.activated?.[key(account, b.device_id)]
+                  ? "activated"
+                  : "unknown",
+          }))
       : [];
   }
   async checkBinding(account: string, device: string, hash: string) {
-    const s = await this.state(),
-      b = s.bindings[key(account, device)];
-    return s.accounts[account]?.enabled && b?.device_key_sha256 === hash
-      ? b
-      : null;
+    const current = await this.state(),
+      k = key(account, device);
+    if (
+      !current.accounts[account]?.enabled ||
+      current.bindings[k]?.device_key_sha256 !== hash
+    )
+      return null;
+    if (current.activated?.[k]) return current.bindings[k];
+    return this.change((s) => {
+      const k = key(account, device),
+        b = s.bindings[k];
+      if (!s.accounts[account]?.enabled || b?.device_key_sha256 !== hash)
+        return null;
+      (s.activated ??= {})[k] = true;
+      return b;
+    });
   }
   async limit(bucket: string, max: number) {
     return this.ctx.blockConcurrencyWhile(async () => {
@@ -279,11 +301,12 @@ export class Directory extends DurableObject<DirectoryEnv> {
         "enable_account",
         "set_role",
         "unbind_device",
+        "reissue_device",
         "rotate_login",
       ].includes(p.action);
       if (sensitive) {
         if (p.action === "set_role" && !p.role) throw Error("role is required");
-        if (p.action === "unbind_device" && !binding)
+        if (["unbind_device", "reissue_device"].includes(p.action) && !binding)
           throw Error("Binding not found");
         const { confirmation_id, ...operation } = p,
           request = JSON.stringify(operation);
@@ -304,7 +327,7 @@ export class Directory extends DurableObject<DirectoryEnv> {
             confirmation_id: id,
             operation: { ...operation, account_id: target },
             message:
-              "请向用户说明操作对象与影响，获得确认后原样提交操作和 confirmation_id。",
+              "请向用户说明操作对象与影响，若用户已明确授权这个对象和操作，可直接提交；否则询问确认。不要求固定口令。原样提交操作和 confirmation_id。",
             expires_in: 120,
           };
         }
@@ -323,11 +346,47 @@ export class Directory extends DurableObject<DirectoryEnv> {
       if (p.action === "list_devices")
         return {
           account_id: target,
-          bindings: Object.values(s.bindings).filter(
-            (b) => b.account_id === target,
-          ),
+          bindings: Object.values(s.bindings)
+            .filter((b) => b.account_id === target)
+            .map((b) => ({
+              ...b,
+              activation:
+                s.activated?.[key(target, b.device_id)] === false
+                  ? "pending"
+                  : s.activated?.[key(target, b.device_id)]
+                    ? "activated"
+                    : "unknown",
+            })),
         };
+      if (p.action === "reissue_device") {
+        if (!a.enabled) throw Error("Account disabled");
+        const deviceKey = secret();
+        const b = { ...binding!, device_key_sha256: await digest(deviceKey) };
+        for (const [id, ticket] of Object.entries(s.tickets))
+          if (ticket.account === target && ticket.device === p.device_id)
+            delete s.tickets[id];
+        s.bindings[bk] = b;
+        (s.activated ??= {})[bk] = false;
+        return {
+          binding: b,
+          ...(await this.ticket(
+            s,
+            a,
+            { binding: b, device_key: deviceKey },
+            b,
+          )),
+        };
+      }
       if (p.action === "bind_device") {
+        if (
+          binding &&
+          a.enabled &&
+          p.device_key_sha256 === binding.device_key_sha256 &&
+          (p.name ?? p.device_id) === binding.device_name &&
+          JSON.stringify(p.tools ?? ["read", "ls", "find", "grep"]) ===
+            JSON.stringify(binding.tools)
+        )
+          return { binding };
         if (!a.enabled || !p.device_id || binding)
           throw Error("Choose an enabled account and a new device binding");
         if (
@@ -342,10 +401,12 @@ export class Directory extends DurableObject<DirectoryEnv> {
           account_id: target,
           device_id: p.device_id,
           device_name: p.name ?? p.device_id,
-          device_key_sha256: await digest(deviceKey),
+          device_key_sha256: p.device_key_sha256 ?? (await digest(deviceKey)),
           tools: p.tools ?? ["read", "ls", "find", "grep"],
         });
         s.bindings[bk] = b;
+        (s.activated ??= {})[bk] = false;
+        if (p.device_key_sha256) return { binding: b };
         return {
           binding: b,
           ...(await this.ticket(
@@ -358,6 +419,7 @@ export class Directory extends DurableObject<DirectoryEnv> {
       }
       if (p.action === "unbind_device") {
         delete s.bindings[bk];
+        if (s.activated) delete s.activated[bk];
         return { removed: true, account_id: target, device_id: p.device_id };
       }
       if (

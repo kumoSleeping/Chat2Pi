@@ -50,6 +50,7 @@ export const manageSchema = z
       "list_devices",
       "bind_device",
       "unbind_device",
+      "reissue_device",
       "rotate_login",
     ]),
     account_id: identifier.optional(),
@@ -57,13 +58,18 @@ export const manageSchema = z
     name: z.string().min(1).max(100).optional(),
     role: z.enum(["admin", "member"]).optional(),
     tools: z.array(toolName).min(1).max(7).optional(),
+    device_key_sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
     confirmation_id: z.string().uuid().optional(),
   })
   .strict();
 export type Manage = z.infer<typeof manageSchema>;
 export const manageTool = {
   name: "manage",
-  description: "管理账号和设备。",
+  description:
+    "管理账号和设备。添加自己的电脑默认绑定当前账号，不创建新账号。claim_url 交给用户在浏览器下载，不代领或将密钥转成聊天附件。领取失败可用 reissue_device 撤销旧设备凭证并重新签发，需确认。",
   inputSchema: {
     type: "object",
     properties: {
@@ -75,6 +81,10 @@ export const manageTool = {
       tools: {
         type: "array",
         items: { type: "string", enum: toolName.options },
+      },
+      device_key_sha256: {
+        type: "string",
+        description: "仅供本地 CLI 注册已保存的设备凭证摘要；聊天中不要填写。",
       },
       confirmation_id: { type: "string", description: "用户确认后提交。" },
     },

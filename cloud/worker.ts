@@ -1,3 +1,9 @@
+import {
+  pageHeaders,
+  authorizationPage,
+  claimPage,
+  authorizationErrorPage,
+} from "./pages";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   OAuthProvider,
@@ -32,51 +38,7 @@ async function manage(env: Env, identity: Identity, input: unknown) {
     );
   return result;
 }
-const escape = (s: string) =>
-  s.replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ]!,
-  );
-const headers = {
-  "Cache-Control": "no-store",
-  "X-Content-Type-Options": "nosniff",
-  "Referrer-Policy": "same-origin",
-  "Content-Security-Policy":
-    "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'unsafe-inline'",
-};
-const html = (body: string, extra: Record<string, string> = {}) =>
-  new Response(
-    `<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Chat with Pi Tools</title><style>body{font:17px system-ui;max-width:620px;margin:10vh auto;padding:24px;line-height:1.7}input,button{font:inherit;padding:12px;margin-top:16px}input{width:90%}</style>${body}`,
-    {
-      headers: {
-        ...headers,
-        "Content-Type": "text/html; charset=utf-8",
-        ...extra,
-      },
-    },
-  );
-function claimPage() {
-  const nonce = crypto.randomUUID();
-  return html(
-    `<h1>领取凭证</h1><p>凭证仅显示一次，请保存在自己的电脑，不要粘贴到聊天中。</p><button id="claim">领取并下载</button><pre id="result"></pre><script nonce="${nonce}">
-  const token=location.hash.slice(1);history.replaceState(null,'',location.pathname);
-  document.getElementById('claim').onclick=async()=>{
-    const button=document.getElementById('claim');button.disabled=true;
-    try {const response=await fetch('/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:token})});
-      if(!response.ok)throw Error('链接已失效、已使用或被撤销');
-      const value=await response.json(),data=JSON.stringify(value,null,2),blob=new Blob([data],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='chat2pi-credentials.json';a.click();
-      document.getElementById('result').textContent=data;
-    }catch(error){document.getElementById('result').textContent=error.message;}
-  };</script>`,
-    {
-      "Content-Security-Policy": `default-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'self'`,
-      "Referrer-Policy": "no-referrer",
-    },
-  );
-}
+const headers = pageHeaders;
 class McpApi extends WorkerEntrypoint<Env, Identity & { scope: string[] }> {
   async fetch(request: Request) {
     if (new URL(request.url).pathname !== "/mcp")
@@ -94,11 +56,11 @@ class McpApi extends WorkerEntrypoint<Env, Identity & { scope: string[] }> {
     const identity = this.ctx.props;
     const registry = room(this.env, identity.accountId);
     const server = new Server(
-      { name: "Chat with Pi Tools", version: "0.4.0" },
+      { name: "Chat with Pi Tools", version: "0.6.0" },
       {
         capabilities: { tools: {} },
         instructions:
-          "先调用 list_devices 查询在线电脑。manage 要求确认时，获得用户确认后才能提交 confirmation_id。每次调用必须指定用户选定的 device_id。设备离线或报错时不得改用其他电脑。超时、断线后不能自动重试写入或命令。",
+          "先调用 list_devices 查询在线电脑。添加自己的电脑默认绑定当前账号。claim_url 交给用户打开下载，不代领密钥或转成聊天附件。领取失败可通过 reissue_device 撤销旧凭证并重新签发，无需删除设备。manage 要求确认时，已有对同一对象与操作的明确授权即可提交 confirmation_id，不要求用户重复固定口令；否则先询问确认。每次调用必须指定用户选定的 device_id。设备离线或报错时不得改用其他电脑。超时、断线后不能自动重试写入或命令。",
       },
     );
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -277,12 +239,12 @@ const defaultHandler: ExportedHandler<Env> = {
       const client = await env.OAUTH_PROVIDER.lookupClient(auth.clientId);
       if (!client) return new Response("Unknown client", { status: 400 });
       const { id, csrf } = await r.consent(auth);
-      return html(
-        `<h1>连接 Chat with Pi Tools</h1><p>允许 ChatGPT 调用你登记的电脑工具，包括已经启用的文件写入和命令执行。</p><p>客户端：${escape(client.clientName ?? auth.clientId)}</p><p>返回地址：${escape(auth.redirectUri)}</p><form method="post" action="/approve"><input type="hidden" name="request" value="${id}"><label>服务账号<input name="account_id" required autocomplete="username"></label><label>账号登录密钥<input name="owner_key" type="password" required autocomplete="off"></label><button type="submit">授权连接</button></form>`,
-        {
-          "Set-Cookie": `pi_consent=${csrf}; HttpOnly; Secure; SameSite=Lax; Path=/approve; Max-Age=300`,
-        },
-      );
+      return authorizationPage({
+        id,
+        csrf,
+        clientName: client.clientName ?? auth.clientId,
+        redirectUri: auth.redirectUri,
+      });
     }
     if (url.pathname === "/approve" && request.method === "POST") {
       if (
@@ -303,7 +265,7 @@ const defaultHandler: ExportedHandler<Env> = {
         form.get("account_id") ?? "",
         form.get("owner_key") ?? "",
       );
-      if (!auth) return new Response("Authorization failed", { status: 403 });
+      if (!auth) return authorizationErrorPage();
       const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
         request: auth.auth,
         userId: auth.identity.accountId,

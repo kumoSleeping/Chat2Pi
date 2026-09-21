@@ -64,5 +64,8 @@ export type AccountOptions = {
     bundle?: string;
     tool?: string;
     args?: string;
+    access?: string;
+    tools?: string;
+    start?: boolean;
 };
 export declare function accountCommand(command: string, o: AccountOptions): Promise<boolean>;

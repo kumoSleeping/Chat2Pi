@@ -51,6 +51,7 @@ chat2pi manage --credentials /private/owner.login.json --action list_devices --t
 | create_account                   | account_id，name 可选                 | 管理员，新账号默认为 member                |
 | list_devices                     | account_id 可选                       | 自己；管理员可指定他人，含注册总数、在线数 |
 | bind_device                      | device_id，account_id/name/tools 可选 | 自己；管理员可指定他人                     |
+| reissue_device | device_id，account_id 可选 | 撤销旧设备凭证并重新签发，需确认 |
 | unbind_device                    | device_id，account_id 可选            | 自己；管理员可指定他人，需确认             |
 | set_role                         | role=admin/member，account_id 可选    | 管理员，需确认                             |
 | disable_account / enable_account | account_id                            | 管理员，需确认                             |
@@ -58,15 +59,15 @@ chat2pi manage --credentials /private/owner.login.json --action list_devices --t
 
 ## 确认流程
 
-敏感操作第一次调用返回 `confirmation_required: true`、`confirmation_id`、操作目标和两分钟有效期。智能体必须先向用户确认，再把**原始参数**和 `confirmation_id` 一起提交。确认编号绑定调用者、目标、参数和凭证版本；修改参数、重用、过期或失去权限会被拒绝。服务端始终保护最后一位有效管理员。
+敏感操作第一次调用返回 `confirmation_required: true`、`confirmation_id`、操作目标和两分钟有效期。若用户已明确授权相同对象和操作，无需重复询问或要求固定口令；否则必须先向用户确认。然后把**原始参数**和 `confirmation_id` 一起提交。确认编号绑定调用者、目标、参数和凭证版本；修改参数、重用、过期或失去权限会被拒绝。服务端始终保护最后一位有效管理员。
 
-这是协议上的两步确认，不能证明人类真的点击了同意；不要让智能体自动原样回传绕过用户确认。
+这是协议上的两步确认，不能证明人类真的点击了同意；不得在没有用户授权时自动原样回传。
 
 ## 领取凭证
 
 创建账号、绑定电脑或轮换登录密钥只返回 `claim_url`，不把真实密钥直接放进工具结果。链接五分钟有效，一次领取后作废。GET 不消耗凭证；浏览器点击领取后发 POST 并下载文件。令牌放在 URL fragment 中，不发送给页面 GET 请求。
 
-智能体也可以通过 `POST /claim`、正文 `{"code":"链接 fragment"}` 领取，并把 JSON 直接写入权限受限的本地文件；不得打印响应中的密钥。CLI 提供 `chat2pi claim --url <领取链接> --out /private/bundle.json`，调用时注意领取链接本身也是短期凭证。
+网页聊天助手应直接交付领取链接，不要代领再尝试制作附件。本地 CLI 可以通过 `POST /claim`、正文 `{"code":"链接 fragment"}` 领取，并把 JSON 直接写入权限受限的本地文件；不得打印响应中的密钥。CLI 提供 `chat2pi claim --url <领取链接> --out /private/bundle.json`，调用时注意领取链接本身也是短期凭证。
 
 领取文件会包含账号登录信息，或 `binding` 加 `device_key`。设备文件用 `device-import` 拆分成相同的绑定配置和仅本地的密钥配置。不能把账号登录密钥当设备凭证使用。
 
@@ -97,3 +98,9 @@ chat2pi call --credentials /private/owner.login.json --id kumo-macBook-m2 --tool
 ```
 
 返回原始 Pi 工具结果。执行范围始终是凭证所属账号的设备，管理员也不能通过请求参数跨账号执行；管理员权限用于账号与绑定管理。设备权限、本地目录限制、断线和超时规则与 MCP 一致。写入或命令在超时后不得自动重试。
+
+## 本地直接创建设备
+
+`chat2pi device-create <id> --access read|workspace|full [--out path]` 先在本地持久保存凭证包，再以 `bind_device` 注册 `device_key_sha256`。服务器仅收到摘要，不返回 claim 链接。相同账号、设备 ID、摘要、名称、工具列表的注册可安全重试；同名不同凭证拒绝覆盖。CLI 的 `manage --tools read,write,edit,ls,find,grep,bash` 也会正确传递工具列表。
+
+`reissue_device` 保留设备 ID 和工具列表，更换设备密钥，撤销之前的领取链接，并返回新链接。用于下载失败或凭证遗失恢复，也会使旧设备凭证失效。设备列表的 `activation` 为 `pending`、`activated` 或 `unknown`（旧记录），与在线/离线状态分别展示。

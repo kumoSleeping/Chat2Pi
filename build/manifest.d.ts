@@ -28,26 +28,29 @@ export declare const bindingSchema: z.ZodObject<{
 }>;
 export type Binding = z.infer<typeof bindingSchema>;
 export declare const manageSchema: z.ZodObject<{
-    action: z.ZodEnum<["me", "list_accounts", "create_account", "disable_account", "enable_account", "set_role", "list_devices", "bind_device", "unbind_device", "rotate_login"]>;
+    action: z.ZodEnum<["me", "list_accounts", "create_account", "disable_account", "enable_account", "set_role", "list_devices", "bind_device", "unbind_device", "reissue_device", "rotate_login"]>;
     account_id: z.ZodOptional<z.ZodString>;
     device_id: z.ZodOptional<z.ZodString>;
     name: z.ZodOptional<z.ZodString>;
     role: z.ZodOptional<z.ZodEnum<["admin", "member"]>>;
     tools: z.ZodOptional<z.ZodArray<z.ZodEnum<["read", "write", "edit", "ls", "find", "grep", "bash"]>, "many">>;
+    device_key_sha256: z.ZodOptional<z.ZodString>;
     confirmation_id: z.ZodOptional<z.ZodString>;
 }, "strict", z.ZodTypeAny, {
-    action: "me" | "list_accounts" | "create_account" | "disable_account" | "enable_account" | "set_role" | "list_devices" | "bind_device" | "unbind_device" | "rotate_login";
+    action: "me" | "list_accounts" | "create_account" | "disable_account" | "enable_account" | "set_role" | "list_devices" | "bind_device" | "unbind_device" | "reissue_device" | "rotate_login";
     device_id?: string | undefined;
     tools?: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[] | undefined;
     account_id?: string | undefined;
+    device_key_sha256?: string | undefined;
     name?: string | undefined;
     role?: "admin" | "member" | undefined;
     confirmation_id?: string | undefined;
 }, {
-    action: "me" | "list_accounts" | "create_account" | "disable_account" | "enable_account" | "set_role" | "list_devices" | "bind_device" | "unbind_device" | "rotate_login";
+    action: "me" | "list_accounts" | "create_account" | "disable_account" | "enable_account" | "set_role" | "list_devices" | "bind_device" | "unbind_device" | "reissue_device" | "rotate_login";
     device_id?: string | undefined;
     tools?: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[] | undefined;
     account_id?: string | undefined;
+    device_key_sha256?: string | undefined;
     name?: string | undefined;
     role?: "admin" | "member" | undefined;
     confirmation_id?: string | undefined;
@@ -61,7 +64,7 @@ export declare const manageTool: {
         properties: {
             action: {
                 type: string;
-                enum: ["me", "list_accounts", "create_account", "disable_account", "enable_account", "set_role", "list_devices", "bind_device", "unbind_device", "rotate_login"];
+                enum: ["me", "list_accounts", "create_account", "disable_account", "enable_account", "set_role", "list_devices", "bind_device", "unbind_device", "reissue_device", "rotate_login"];
             };
             account_id: {
                 type: string;
@@ -82,6 +85,10 @@ export declare const manageTool: {
                     type: string;
                     enum: ["read", "write", "edit", "ls", "find", "grep", "bash"];
                 };
+            };
+            device_key_sha256: {
+                type: string;
+                description: string;
             };
             confirmation_id: {
                 type: string;

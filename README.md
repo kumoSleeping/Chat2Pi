@@ -23,15 +23,27 @@ npm install -g https://github.com/kumoSleeping/Chat2Pi/archive/refs/heads/main.t
 
 GitHub 仓库附带已编译客户端，使用源码归档安装可避开部分 npm 版本的全局 Git 依赖安装问题，不需要 Git 或本机 TypeScript 编译环境。Pi SDK 随依赖安装，不需单独安装 Pi CLI、Python、cloudflared 或 OpenAI Tunnel。Pi 依赖为 `*`，没有人为版本限制；未来接口变动按实际问题修复。
 
-在管理工具中绑定电脑，领取凭证下载文件后，在**目标电脑**上执行：
+## 添加自己的另一台电脑
+
+在已经保存账号登录凭证的电脑上，一条命令创建并导出设备文件（无需新建账号）：
 
 ```sh
-chat2pi device-import --bundle ./chat2pi-credentials.json --workspace ./PiWorkspace
-chat2pi start
-chat2pi status
+chat2pi device-create WindowsSov8 --account kumo --access full
 ```
 
-先创建工作目录。默认本地只启用工作目录内的只读工具。即使云端允许更多工具，本地仍取权限交集；需要全部已授权工具时，导入时显式加 `--unrestricted`。
+默认保存为 `~/Downloads/WindowsSov8.json`，也可用 `--out` 指定文件位置。将文件传到 Windows 后：
+
+```powershell
+chat2pi device-import --bundle "$env:USERPROFILE\Downloads\WindowsSov8.json" --access full --start
+```
+
+自动创建 `~/PiWorkspace` 并启动连接。`--start` 会重启本地服务以载入新增绑定，其他已导入设备连接也会短暂重连。启动成功表示本地进程已运行，云端在线状态仍以 `manage --action list_devices` 为准。
+
+权限选项：`read`（默认，只读）、`workspace`（工作目录内读写，不含 Bash）、`full`（完整七个工具、整机访问）。完整权限必须在目标电脑显式加 `--access full` 确认；旧的 `--unrestricted` 仍可使用。实际启用的工具会在导入后打印，始终受云端授权上限约束。
+
+创建流程先保存私密文件，再向服务注册摘要；注册失败时保留文件，修复网络后重跑**同一条命令**即可，不会换密钥。不要删除该文件或更换输出位置来重试。重复导入相同配置也可继续启动。已有同名但不同凭证的设备不会被覆盖。
+
+网页版管理工具返回领取链接时，请自己打开下载，助手不要代领再转成聊天附件。网页支持在当前页面再次下载，设备文件以设备名命名。若领取后丢失文件，可用 `reissue_device` 撤销旧设备凭证并重新签发，无需删除设备；此操作需要确认，旧文件和旧连接的权限会失效。
 
 所有默认文件集中在用户目录的 `~/.chat2pi`（Windows 为 `%USERPROFILE%\.chat2pi`）：
 
@@ -81,11 +93,11 @@ chat2pi bootstrap --url https://YOUR-SERVER --account owner --key-file ~/.chat2p
 | `read`、`write`、`edit`、`ls`、`find`、`grep`、`bash` | 目标电脑上的 Pi 工具，必须指定 `device_id` |
 | `manage`                                              | 管理账号和设备。                           |
 
-`manage` 的动作：`me`、`list_accounts`、`create_account`、`set_role`、`disable_account`、`enable_account`、`list_devices`、`bind_device`、`unbind_device`、`rotate_login`。
+`manage` 的动作：`me`、`list_accounts`、`create_account`、`set_role`、`disable_account`、`enable_account`、`list_devices`、`bind_device`、`unbind_device`、`reissue_device`、`rotate_login`。
 
 普通账号只管理自己的绑定；管理其他账号和账号角色需要管理员权限。身份从已验证的 OAuth 凭证取得，不采用模型传入的账号身份。管理员能管理其他账号的绑定，普通执行工具仍只操作当前登录账号的电脑。
 
-敏感操作先返回两分钟有效的确认编号，向用户确认后原样提交操作和 `confirmation_id`。服务端绑定调用者、目标和参数并重新校验权限；确认编号本身不能证明用户真的口头确认，客户端仍需遵守确认流程。
+敏感操作先返回两分钟有效的确认编号，用户已明确授权同一对象和操作时无需再要求固定口令；否则先询问确认。原样提交操作和 `confirmation_id`。服务端绑定调用者、目标和参数并重新校验权限；确认编号本身不能证明用户真的口头确认，客户端仍需遵守确认流程。
 
 创建账号或设备绑定返回五分钟有效、仅能领取一次的链接。GET 打开页面不会消耗凭证，需点击领取。真实密钥不进入工具返回值；领取链接本身具有领取权限，不应公开转发。
 
@@ -117,3 +129,7 @@ npm run test:cloud
 Node 测试覆盖实际 Pi、权限和本地账号校验。Cloudflare 测试在本地 workerd 中运行真实 OAuth、数据库和 WebSocket 路由，覆盖账号隔离、管理员保护、确认绑定、凭证单次领取和撤销，不访问线上账号。
 
 旧本机网关的兼容代码仍保留；新部署请使用上述数据库版本。
+
+## 更新这一版
+
+先部署新版云端，再更新需要使用新命令的 Mac / Windows 客户端。旧设备配置仍兼容，无需重建账号或设备。网页版 ChatGPT 的 Chat2Pi 应用详情页执行刷新，载入新的工具参数和操作说明；保持原 MCP 地址与 OAuth 账号。仅刷新网页不会部署服务端代码。
