@@ -221,6 +221,10 @@ export async function startGateway(config: GatewayConfig) {
         }
       }, 20_000);
       ws.on("message", (raw) => {
+        if (raw.toString() === "ping") {
+          ws.send("pong");
+          return;
+        }
         try {
           const m = JSON.parse(raw.toString());
           if (!attached) {

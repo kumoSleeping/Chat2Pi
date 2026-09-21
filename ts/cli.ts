@@ -26,6 +26,7 @@ import {
 import { startGateway } from "./gateway.js";
 import { startAgent } from "./agent.js";
 import { piVersion } from "./pi.js";
+import { createHash } from "node:crypto";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -81,8 +82,61 @@ async function probeHealth(origin: string): Promise<string> {
   }
 }
 async function main() {
-  const command = positionals[0];
-  if (command === "init") {
+  const agentDaemon = positionals[0]?.startsWith("agent-");
+  const command = agentDaemon ? positionals[0].slice(6) : positionals[0];
+  if (command === "cloud-init" || command === "cloud-add-device") {
+    if (
+      !values.config ||
+      !values.url ||
+      !values.id ||
+      !values.workspace ||
+      !values.out
+    )
+      throw new Error(
+        "cloud-init / cloud-add-device require --config secrets-file --url gateway --id device --workspace target-path --out agent-file",
+      );
+    const out = resolve(values.out);
+    if (existsSync(out))
+      throw new Error("Agent output already exists; not overwritten");
+    if (command === "cloud-init" && existsSync(configFile))
+      throw new Error("Cloud config already exists; use cloud-add-device");
+    const owner = resolve(dirname(configFile), "owner-key");
+    const hash = (value: string) =>
+      createHash("sha256").update(value).digest("hex");
+    if (command === "cloud-init" && !existsSync(owner))
+      savePrivate(owner, token() + "\n");
+    const secrets =
+      command === "cloud-init"
+        ? {
+            OWNER_KEY_HASH: hash(readPrivate(owner).trim()),
+            DEVICE_CONFIG: "[]",
+          }
+        : JSON.parse(readPrivate(configFile));
+    const registrations = JSON.parse(secrets.DEVICE_CONFIG);
+    const local = device(values.id, values.workspace);
+    if (
+      registrations.some(
+        (d: { device_id: string }) => d.device_id === local.device_id,
+      )
+    )
+      throw new Error("Device ID already registered");
+    const agent = agentSchema.parse({
+      gateway_url: requireSecureUrl(values.url).origin,
+      device_token: token(),
+      device: local,
+    });
+    registrations.push({
+      device_id: local.device_id,
+      token_hash: hash(agent.device_token),
+      tools: local.tools,
+    });
+    secrets.DEVICE_CONFIG = JSON.stringify(registrations);
+    savePrivate(out, json(agent));
+    savePrivate(configFile, json(secrets));
+    console.log(
+      `Private agent config: ${out}\nCloud secret file: ${configFile}\nDeploy the cloud secrets to register this device, then start its agent. Only copy the agent config to the target computer.`,
+    );
+  } else if (command === "init") {
     if (existsSync(configFile))
       throw new Error("Config already exists; not overwritten");
     if (!values.url || !values.id)
@@ -187,17 +241,29 @@ async function main() {
       throw new Error(
         "On Windows use run / agent in the foreground or your system service manager",
       );
-    const config = gatewaySchema.parse(readConfig(configFile));
+    const agentConfig = agentDaemon
+      ? agentSchema.parse(readConfig(configFile))
+      : undefined;
+    const config = agentConfig
+      ? undefined
+      : gatewaySchema.parse(readConfig(configFile));
+    const label = agentDaemon ? "Device agent" : "Gateway";
     const statePath = configFile + ".process",
       lockPath = configFile + ".lock";
     mkdirSync(dirname(configFile), { recursive: true, mode: 0o700 });
     if (command === "status") {
+      if (agentConfig) {
+        console.log(
+          `Device agent: ${daemonState() ? "running" : "stopped"}\nDevice: ${agentConfig.device.device_id}\nLog: ${configFile}.log\nUse list_devices in ChatGPT to verify online status.`,
+        );
+        return;
+      }
       console.log(
-        `Gateway: ${daemonState() ? "running" : "stopped"}\nMCP URL: ${config.public_url}/mcp\nLog: ${configFile}.log`,
+        `Gateway: ${daemonState() ? "running" : "stopped"}\nMCP URL: ${config!.public_url}/mcp\nLog: ${configFile}.log`,
       );
       const checks = await Promise.all([
-        probeHealth("http://127.0.0.1:" + config.port),
-        probeHealth(config.public_url),
+        probeHealth("http://127.0.0.1:" + config!.port),
+        probeHealth(config!.public_url),
       ]);
       console.log(
         "Local health: " + checks[0] + "\nPublic health: " + checks[1],
@@ -218,21 +284,21 @@ async function main() {
             await sleep(100);
           if (fingerprint(state.pid) === state.identity)
             throw new Error(
-              "Gateway is still shutting down; no forced termination",
+              `${label} is still shutting down; no forced termination`,
             );
         }
         if (existsSync(statePath)) unlinkSync(statePath);
-        console.log("Gateway stopped");
+        console.log(`${label} stopped`);
       }
       if (command === "start" || command === "restart") {
         if (daemonState()) {
-          console.log("Gateway already running");
+          console.log(`${label} already running`);
           return;
         }
         const log = openSync(configFile + ".log", "a", 0o600);
         const child = spawn(
           process.execPath,
-          [cli, "run", "--config", configFile],
+          [cli, agentDaemon ? "agent" : "run", "--config", configFile],
           {
             detached: true,
             stdio: ["ignore", log, log],
@@ -245,17 +311,25 @@ async function main() {
         savePrivate(statePath, json({ pid: child.pid, identity }));
         child.unref();
         await sleep(500);
+        if (agentConfig) {
+          if (!daemonState())
+            throw new Error(`Device agent exited; inspect ${configFile}.log`);
+          console.log(
+            `Device agent started: ${agentConfig.device.device_id}. Use list_devices to verify online status.`,
+          );
+          return;
+        }
         for (let n = 0; n < 100; n++) {
           if (!daemonState())
             throw new Error(`Gateway exited; inspect ${configFile}.log`);
           try {
-            const r = await fetch(`http://127.0.0.1:${config.port}/healthz`, {
+            const r = await fetch(`http://127.0.0.1:${config!.port}/healthz`, {
               signal: AbortSignal.timeout(500),
             });
             const data = (await r.json()) as any;
             if (data.service === "chat2pi") {
               console.log(
-                `Local gateway ready. Public endpoint: ${config.public_url}/mcp — run status to check tunnel reachability.`,
+                `Local gateway ready. Public endpoint: ${config!.public_url}/mcp — run status to check tunnel reachability.`,
               );
               return;
             }
@@ -270,7 +344,7 @@ async function main() {
     }
   } else {
     console.log(
-      `Chat2Pi — one plugin, multiple computers\n\ninit --url https://host --id computer [--workspace path] [--unrestricted] [--cloudflare path]\nadd-device --id computer --workspace /path/on/target [--out file] [--unrestricted]\nstart | stop | restart | status\nrun                 foreground gateway + optional Cloudflare tunnel\nagent --config file foreground device client\n\nAll commands accept --config file (default .local/gateway.json).\nPi versions are not restricted. npm update installs the currently available release.`,
+      `Chat2Pi — one plugin, multiple computers\n\ncloud-init | cloud-add-device --config cloud-secrets.json --url https://host --id computer --workspace target-path --out agent.json [--unrestricted]\nagent-start | agent-stop | agent-restart | agent-status --config agent.json\n\nLegacy local gateway:\ninit --url https://host --id computer [--workspace path] [--unrestricted] [--cloudflare path]\nadd-device --id computer --workspace /path/on/target [--out file] [--unrestricted]\nstart | stop | restart | status\nrun                 foreground gateway + optional Cloudflare tunnel\nagent --config file foreground device client\n\nAll commands accept --config file (default .local/gateway.json).\nPi versions are not restricted. npm update installs the currently available release.`,
     );
   }
 }

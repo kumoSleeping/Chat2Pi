@@ -1,0 +1,16 @@
+{
+  "name": "chat2pi",
+  "main": "worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": false },
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM", "class_name": "DeviceRoom" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DeviceRoom"] }],
+  "kv_namespaces": [
+    { "binding": "OAUTH_KV", "id": "f747766594ec42ee9838edaf112bae71" },
+  ],
+  "vars": { "PUBLIC_URL": "https://chat2pi.kumosleeping.workers.dev" },
+}

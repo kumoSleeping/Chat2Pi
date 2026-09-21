@@ -1,0 +1,19 @@
+{
+  "name": "chat2pi-cloud",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4",
+    "@cloudflare/workers-types": "*",
+    "typescript": "^5"
+  }
+}

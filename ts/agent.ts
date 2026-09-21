@@ -39,12 +39,16 @@ export function startAgent(config: AgentConfig) {
     });
     const connection = ws;
     let heartbeat: NodeJS.Timeout;
+    let keepalive: NodeJS.Timeout;
     const touch = () => {
       clearTimeout(heartbeat);
       heartbeat = setTimeout(() => connection.terminate(), 60_000);
     };
     connection.on("open", () => {
       touch();
+      keepalive = setInterval(() => {
+        if (connection.readyState === WebSocket.OPEN) connection.send("ping");
+      }, 20_000);
       connection.send(
         JSON.stringify({
           type: "hello",
@@ -57,6 +61,10 @@ export function startAgent(config: AgentConfig) {
     });
     connection.on("ping", touch);
     connection.on("message", async (raw) => {
+      if (raw.toString() === "pong") {
+        touch();
+        return;
+      }
       let requestId: string | undefined;
       try {
         const message = JSON.parse(raw.toString());
@@ -106,6 +114,7 @@ export function startAgent(config: AgentConfig) {
     connection.on("error", () => {});
     connection.on("close", () => {
       clearTimeout(heartbeat);
+      clearInterval(keepalive);
       runner.close();
       if (!stopped) {
         console.log(
