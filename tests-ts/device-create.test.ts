@@ -7,7 +7,7 @@ import { accountCommand, hash, loadAgents } from "../build/accounts.js";
 import { savePrivate } from "../build/config.js";
 import { bindingPath } from "../build/home-store.js";
 
-test("device-create saves before sending, retries with the same secret, and imports explicit full access", async () => {
+test("device-create saves before sending, retries with the same secret, and imports all tools by default", async () => {
   const root = mkdtempSync(join(tmpdir(), "chat2pi-create-"));
   const originalFetch = globalThis.fetch;
   const login = {
@@ -24,13 +24,15 @@ test("device-create saves before sending, retries with the same secret, and impo
     const bundle = JSON.parse(readFileSync(out, "utf8"));
     const body = JSON.parse(String(init?.body));
     assert.equal(body.device_key_sha256, hash(bundle.device_key));
+    assert(!("login_key" in bundle));
+    assert.equal(bundle.binding.account_id, "alice");
     assert(!String(init?.body).includes(bundle.device_key));
     if (!firstKey) firstKey = bundle.device_key;
     assert.equal(bundle.device_key, firstKey);
     if (++calls === 1) throw Error("network lost after registration");
     return Response.json({ binding: bundle.binding });
   };
-  const options = { home: root, id: "pc", credentials, out, access: "full" };
+  const options = { home: root, id: "pc", credentials, out };
   try {
     await assert.rejects(
       accountCommand("device-create", options),
@@ -45,11 +47,18 @@ test("device-create saves before sending, retries with the same secret, and impo
     assert.equal(calls, 3);
     const workspace = join(root, "workspace");
     await assert.rejects(
-      accountCommand("device-import", { home: root, bundle: out, workspace }),
-      /Confirm on this computer/,
+      accountCommand("device-import", {
+        home: root,
+        bundle: credentials,
+        workspace,
+      }),
+      /account file for ChatGPT authorization/,
     );
-    assert(!existsSync(workspace));
-    const imp = { home: root, bundle: out, workspace, access: "full" };
+    await assert.rejects(
+      accountCommand("login-import", { home: root, bundle: out }),
+      /device file/,
+    );
+    const imp = { home: root, bundle: out, workspace };
     await accountCommand("device-import", imp);
     await accountCommand("device-import", imp);
     const [agent] = loadAgents(
@@ -191,6 +200,7 @@ test(
           "--workspace",
           join(root, "work"),
           "--start",
+          "--background",
         ],
         { timeout: 35000 },
       );

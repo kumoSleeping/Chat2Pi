@@ -23,23 +23,33 @@ npm install -g https://github.com/kumoSleeping/Chat2Pi/archive/refs/heads/main.t
 
 GitHub 仓库附带已编译客户端，使用源码归档安装可避开部分 npm 版本的全局 Git 依赖安装问题，不需要 Git 或本机 TypeScript 编译环境。Pi SDK 随依赖安装，不需单独安装 Pi CLI、Python、cloudflared 或 OpenAI Tunnel。Pi 依赖为 `*`，没有人为版本限制；未来接口变动按实际问题修复。
 
+## 两种文件，分别下载
+
+| 创建什么 | 下载文件 | 在哪里使用 |
+| --- | --- | --- |
+| 连接账号 | `link_chatgpt_plugin_oauth_<账号名>.json`，包含连接密钥 `login_key`，没有设备密钥 | 在 ChatGPT 添加插件时，将连接密钥填到授权页；需要 CLI 管理时用 `login-import` 导入 |
+| 设备 | `<设备名>.json`，包含该设备的绑定和 `device_key`，没有连接密钥 | 只传到目标电脑，用 `device-import` 导入，再运行 `chat2pi start` |
+
+创建账号不会同时创建设备，创建设备不会同时下载账号凭证。设备文件中的 `account_id` 仅记录归属，不是账号密钥，也不能代替 ChatGPT 授权。旧文件名仍可导入。
+
 ## 添加自己的另一台电脑
 
 在已经保存账号登录凭证的电脑上，一条命令创建并导出设备文件（无需新建账号）：
 
 ```sh
-chat2pi device-create WindowsSov8 --account kumo --access full
+chat2pi device-create WindowsSov8
 ```
 
 默认保存为 `~/Downloads/WindowsSov8.json`，也可用 `--out` 指定文件位置。将文件传到 Windows 后：
 
 ```powershell
-chat2pi device-import --bundle "$env:USERPROFILE\Downloads\WindowsSov8.json" --access full --start
+chat2pi.cmd device-import --bundle "$env:USERPROFILE\Downloads\WindowsSov8.json"
+chat2pi.cmd start
 ```
 
-自动创建 `~/PiWorkspace` 并启动连接。`--start` 会重启本地服务以载入新增绑定，其他已导入设备连接也会短暂重连。启动成功表示本地进程已运行，云端在线状态仍以 `manage --action list_devices` 为准。
+导入时自动创建 `~/PiWorkspace`。日常只需 `chat2pi start`：启动所有已导入绑定，每 200 毫秒轮询展示新增日志，Ctrl+C 停止本次服务并断开设备。启动时展示工具加载进度；出现 `Device online` 才表示云端连接成功。也可用导入命令的 `--start` 直接进入前台会话。
 
-权限选项：`read`（默认，只读）、`workspace`（工作目录内读写，不含 Bash）、`full`（完整七个工具、整机访问）。完整权限必须在目标电脑显式加 `--access full` 确认；旧的 `--unrestricted` 仍可使用。实际启用的工具会在导入后打印，始终受云端授权上限约束。
+默认创建和导入完整七个工具（`full`，整机访问）。可用 `--access read` 选择只读，或 `--access workspace` 限制为工作目录内读写、不含 Bash。文件中已有的权限限制会保留，启动不会扩大已有绑定的权限；旧的 `--unrestricted` 仍可使用。实际启用的工具会在导入后打印，始终受云端授权上限约束。
 
 创建流程先保存私密文件，再向服务注册摘要；注册失败时保留文件，修复网络后重跑**同一条命令**即可，不会换密钥。不要删除该文件或更换输出位置来重试。重复导入相同配置也可继续启动。已有同名但不同凭证的设备不会被覆盖。
 
@@ -49,27 +59,50 @@ chat2pi device-import --bundle "$env:USERPROFILE\Downloads\WindowsSov8.json" --a
 
 ```text
 .chat2pi/
-  accounts/   账号登录凭证
-  bindings/   每个账号 + 电脑的绑定及私密 .credentials.json
+  accounts/   独立的 ChatGPT 插件连接账号凭证
+  devices/    每台电脑一个设备配置文件（按服务和账号分目录）
   downloads/  领取的凭证包
   runtime/    后台服务状态、控制凭证和日志
 ```
 
 ```sh
-chat2pi start    # 自动启动 bindings 中所有设备连接
+chat2pi start    # 前台启动所有设备连接，显示日志；Ctrl+C 停止
+chat2pi start --background  # 可选：常驻后台
 chat2pi stop
-chat2pi restart --all  # 重新读取所有账号的配置
+chat2pi restart --background  # 后台重新加载全部配置
 chat2pi status   # 查看本地进程和已加载绑定
 chat2pi manage --action me
 ```
 
-启停和状态命令默认处理全部已导入绑定，支持显式 `--all`，例如 `chat2pi start --all`、`chat2pi stop --all` 和 `chat2pi status --all`。`--all` 不用于管理权限或执行电脑工具；这些操作仍然选择唯一账号。
+启停和状态命令默认处理全部已导入绑定，无需额外参数。管理权限或执行电脑工具时仍会选择唯一账号。
 
-`start` 重复运行不会重复启动。新增或修改绑定后运行 `restart`；不自动监视文件变化。`status` 的运行状态不等于云端在线状态，在线设备用 `manage --action list_devices` 查询。后台管理使用经过认证的本机控制接口，适用于 macOS / Linux / Windows，不包含开机自启。
+前台 `start` 发现已有服务时会提示先 `stop`，不会接管或停止别的会话；后台启动重复运行不会重复启动。前台新增或修改绑定后 Ctrl+C 再 `start`，后台模式使用 `restart --background`；不自动监视文件变化。`status` 的运行状态不等于云端在线状态，在线设备用 `manage --action list_devices` 查询。`restart` 默认也会前台显示日志。后台管理使用经过认证的本机控制接口，适用于 macOS / Linux / Windows，不包含开机自启。
 
 通过 `login-import --bundle login.json` 导入账号凭证；只有一个账号时管理命令自动选择，多个账号用 `--account` 指定，同名账号分属不同服务时再加 `--url`。可用 `--home` 指定独立的配置目录。设备私密文件保留本地权限限制，实际权限仍取云端与本地交集。
 
 Windows 文件工具可以直接运行。使用 Bash 工具需额外安装 Git for Windows，并在私密配置的 `local.shell_path` 指定 Bash 路径。Windows 尚未实机验证。
+
+## 更新
+
+先在前台按 Ctrl+C，或运行 `chat2pi stop` 停止旧后台服务。然后更新并启动：
+
+macOS：
+
+```sh
+npm install -g https://github.com/kumoSleeping/Chat2Pi/archive/refs/heads/main.tar.gz
+chat2pi start
+```
+
+Windows PowerShell：
+
+```powershell
+npm.cmd install -g https://github.com/kumoSleeping/Chat2Pi/archive/refs/heads/main.tar.gz
+chat2pi.cmd start
+```
+
+首次启动自动把旧账号文件改名，并把设备绑定和设备密钥文件合并成独立设备文件；全部写入并验证后，删除对应旧文件。原工作目录、权限、代理和密钥保留。不会清理下载文件、历史归档或任意项目配置。遇到冲突会停止并保留原文件，详见 [迁移规则](docs/CONFIGURATION.md)。安装本身不改配置，迁移发生在启动或重启时。
+
+客户端更新不会更新云端网页；自部署者需要另行部署新版 `cloud/`，才能使用新的下载文件名和仅输入连接密钥的授权页。
 
 ## 云端与首次管理员
 
@@ -83,7 +116,7 @@ chat2pi bootstrap --url https://YOUR-SERVER --account owner --key-file ~/.chat2p
 
 管理员可以创建账号、授予或撤销管理员权限、停用账号和管理设备。系统不允许停用或降级最后一位有效管理员。
 
-在 ChatGPT 中新增自定义 MCP 插件：URL 为 `https://YOUR-SERVER/mcp`，认证选择 OAuth，客户端注册选择 DCR；授权页填写**服务账号 ID 和该账号登录密钥**。这不是 ChatGPT 账号密码，服务不会取得 OpenAI 的用户身份。
+在 ChatGPT 中新增自定义 MCP 插件：URL 为 `https://YOUR-SERVER/mcp`，认证选择 OAuth，客户端注册选择 DCR；授权页只填写**连接密钥**（兼容已有凭证文件中的 `login_key`），不再填写账号。一个连接可访问自己的多台设备，每台设备有独立设备密钥，可单独撤销。内部 `account_id` 保留为设备分组和权限隔离标识，不是 OpenAI 账号，也不是设备 ID；不需要手动修改。服务不会取得 OpenAI 的用户身份。
 
 ## 工具
 

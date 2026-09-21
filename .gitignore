@@ -16,3 +16,5 @@ wrangler.local.jsonc
 .chat2pi/
 
 output/playwright/
+
+link_chatgpt_plugin_oauth_*.json

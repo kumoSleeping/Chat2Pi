@@ -68,9 +68,19 @@ test(
     const cli = resolve("build/cli.js");
     const run = async (command: string) =>
       (
-        await exec(process.execPath, [cli, command, "--all", "--home", home], {
-          timeout: 60000,
-        })
+        await exec(
+          process.execPath,
+          [
+            cli,
+            command,
+            ...(["start", "restart"].includes(command) ? ["--background"] : []),
+            "--home",
+            home,
+          ],
+          {
+            timeout: 60000,
+          },
+        )
       ).stdout;
     try {
       assert.equal(JSON.parse(await run("status")).running, false);
@@ -111,6 +121,78 @@ test(
       assert.equal(JSON.parse(await run("status")).running, false);
     } finally {
       await run("stop").catch(() => {});
+      wss.clients.forEach((ws) => ws.terminate());
+      await new Promise<void>((r) => wss.close(() => r()));
+      await new Promise<void>((r) => server.close(() => r()));
+      rmSync(home, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "Plain start polls live logs, refuses duplicate ownership, and disconnects on stop",
+  { timeout: 45000 },
+  async () => {
+    const { spawn } = await import("node:child_process");
+    const { once } = await import("node:events");
+    const home = mkdtempSync(join(tmpdir(), "chat2pi-foreground-"));
+    const server = createServer();
+    const wss = new WebSocketServer({ server });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    savePrivate(
+      join(home, "bindings", "pc.binding.json"),
+      JSON.stringify({
+        gateway_url: `http://127.0.0.1:${(server.address() as any).port}`,
+        device_token: "x".repeat(64),
+        device: { device_id: "pc", workspace: home, tools: ["read"] },
+      }),
+    );
+    const connected = new Promise<any>((resolve) =>
+      wss.once("connection", (ws) => {
+        ws.on("message", (raw) => {
+          if (JSON.parse(raw.toString()).type === "hello") {
+            ws.send(JSON.stringify({ type: "ready", device_id: "pc" }));
+            resolve(ws);
+          }
+        });
+      }),
+    );
+    const cli = resolve("build/cli.js");
+    const child = spawn(process.execPath, [cli, "start", "--home", home], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const exited = once(child, "exit");
+    let output = "";
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+    const run = (command: string) =>
+      exec(process.execPath, [cli, command, "--home", home], {
+        timeout: 10000,
+      });
+    try {
+      const ws = await connected;
+      for (let n = 0; n < 100 && !output.includes("Device online: pc"); n++)
+        await new Promise((r) => setTimeout(r, 50));
+      assert.match(output, /Device online: pc/);
+      assert.match(output, /Ctrl\+C/);
+      await assert.rejects(run("start"), /already running/);
+      assert.equal(JSON.parse((await run("status")).stdout).running, true);
+      const disconnected = once(ws, "close");
+      // Node cannot synthesize a console Ctrl+C on Windows; exercise its same
+      // authenticated shutdown endpoint there. Real console acceptance is separate.
+      if (process.platform === "win32") await run("stop");
+      else child.kill("SIGINT");
+      await disconnected;
+      const [code] = await exited;
+      assert.equal(code, 0, output);
+      assert.equal(JSON.parse((await run("status")).stdout).running, false);
+    } finally {
+      await run("stop").catch(() => {});
+      child.kill();
       wss.clients.forEach((ws) => ws.terminate());
       await new Promise<void>((r) => wss.close(() => r()));
       await new Promise<void>((r) => server.close(() => r()));

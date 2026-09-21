@@ -45,6 +45,108 @@ export declare const localCredentialsSchema: z.ZodObject<{
     proxy_url?: string | undefined;
 }>;
 export declare function loadAgents(path: string, credentialsPath?: string): AgentConfig[];
+export declare const deviceBundleSchema: z.ZodObject<{
+    binding: z.ZodObject<{
+        version: z.ZodLiteral<1>;
+        server_url: z.ZodEffects<z.ZodString, string, string>;
+        account_id: z.ZodString;
+        device_id: z.ZodString;
+        device_name: z.ZodString;
+        device_key_sha256: z.ZodString;
+        tools: z.ZodEffects<z.ZodArray<z.ZodEnum<["read", "write", "edit", "ls", "find", "grep", "bash"]>, "many">, ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[], ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[]>;
+    }, "strict", z.ZodTypeAny, {
+        device_id: string;
+        tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
+        account_id: string;
+        version: 1;
+        server_url: string;
+        device_name: string;
+        device_key_sha256: string;
+    }, {
+        device_id: string;
+        tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
+        account_id: string;
+        version: 1;
+        server_url: string;
+        device_name: string;
+        device_key_sha256: string;
+    }>;
+    device_key: z.ZodString;
+    access: z.ZodOptional<z.ZodEnum<["read", "workspace", "full"]>>;
+    local: z.ZodOptional<z.ZodObject<{
+        workspace: z.ZodString;
+        access: z.ZodEnum<["workspace", "unrestricted"]>;
+        tools: z.ZodArray<z.ZodEnum<["read", "write", "edit", "ls", "find", "grep", "bash"]>, "many">;
+        timeout_seconds: z.ZodDefault<z.ZodNumber>;
+        shell_path: z.ZodOptional<z.ZodString>;
+    }, "strict", z.ZodTypeAny, {
+        workspace: string;
+        tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
+        access: "workspace" | "unrestricted";
+        timeout_seconds: number;
+        shell_path?: string | undefined;
+    }, {
+        workspace: string;
+        tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
+        access: "workspace" | "unrestricted";
+        timeout_seconds?: number | undefined;
+        shell_path?: string | undefined;
+    }>>;
+    proxy_url: z.ZodOptional<z.ZodEffects<z.ZodString, string, string>>;
+}, "strict", z.ZodTypeAny, {
+    device_key: string;
+    binding: {
+        device_id: string;
+        tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
+        account_id: string;
+        version: 1;
+        server_url: string;
+        device_name: string;
+        device_key_sha256: string;
+    };
+    access?: "read" | "workspace" | "full" | undefined;
+    proxy_url?: string | undefined;
+    local?: {
+        workspace: string;
+        tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
+        access: "workspace" | "unrestricted";
+        timeout_seconds: number;
+        shell_path?: string | undefined;
+    } | undefined;
+}, {
+    device_key: string;
+    binding: {
+        device_id: string;
+        tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
+        account_id: string;
+        version: 1;
+        server_url: string;
+        device_name: string;
+        device_key_sha256: string;
+    };
+    access?: "read" | "workspace" | "full" | undefined;
+    proxy_url?: string | undefined;
+    local?: {
+        workspace: string;
+        tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
+        access: "workspace" | "unrestricted";
+        timeout_seconds?: number | undefined;
+        shell_path?: string | undefined;
+    } | undefined;
+}>;
+export declare const loginSchema: z.ZodObject<{
+    server_url: z.ZodString;
+    account_id: z.ZodString;
+    login_key: z.ZodString;
+}, "strict", z.ZodTypeAny, {
+    account_id: string;
+    server_url: string;
+    login_key: string;
+}, {
+    account_id: string;
+    server_url: string;
+    login_key: string;
+}>;
 export type AccountOptions = {
     home?: string;
     config?: string;
@@ -67,5 +169,6 @@ export type AccountOptions = {
     access?: string;
     tools?: string;
     start?: boolean;
+    background?: boolean;
 };
 export declare function accountCommand(command: string, o: AccountOptions): Promise<boolean>;

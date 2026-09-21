@@ -19,3 +19,18 @@ jobs:
       - run: npx tsc -p cloud/tsconfig.json
       - run: npm run test:cloud
       - run: npm pack
+
+  desktop-service:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx tsx --test --test-concurrency=1 tests-ts/service.test.ts tests-ts/device-create.test.ts tests-ts/migration.test.ts

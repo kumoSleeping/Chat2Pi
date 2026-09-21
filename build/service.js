@@ -1,10 +1,11 @@
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, closeSync, readFileSync, unlinkSync, } from "node:fs";
+import { existsSync, mkdirSync, openSync, closeSync, readFileSync, readSync, statSync, fstatSync, unlinkSync, } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
+import { migrateHome } from "./migration.js";
 import { loadAgents } from "./accounts.js";
 import { bindingFiles } from "./home-store.js";
 import { readPrivate, savePrivate, token, secureEqual } from "./config.js";
@@ -81,7 +82,9 @@ function configs(home) {
 }
 export async function serve(home) {
     const list = configs(home);
+    console.log("Loading Pi tools…");
     const { startAgent } = await import("./agent.js");
+    console.log("Pi tools loaded; connecting devices…");
     const agents = [];
     let stopping = false;
     const id = randomUUID(), credential = token();
@@ -151,7 +154,7 @@ export async function serve(home) {
         throw e;
     }
 }
-export async function serviceCommand(command, home) {
+async function backgroundCommand(command, home, session) {
     if (command === "serve") {
         await serve(home);
         return true;
@@ -226,10 +229,15 @@ export async function serviceCommand(command, home) {
             return true;
         }
         if (s) {
+            if (session)
+                throw Error("Chat2Pi is already running; use stop before starting a foreground session");
             console.log("Chat2Pi already running; use restart to reload bindings");
             return true;
         }
+        migrateHome(home);
         configs(home);
+        session?.signal.throwIfAborted();
+        console.log("Starting Chat2Pi; loading device tools…");
         const log = openSync(join(runtime, "service.log"), "a", 0o600);
         const child = spawn(process.execPath, [
             fileURLToPath(new URL("./cli.js", import.meta.url)),
@@ -244,8 +252,10 @@ export async function serviceCommand(command, home) {
         });
         if (child.pid)
             savePrivate(pendingPath, JSON.stringify({ pid: child.pid }));
+        session?.spawned(child);
         child.unref();
         for (let i = 0; i < 300; i++) {
+            session?.signal.throwIfAborted();
             if (failure)
                 throw failure;
             const started = state(home);
@@ -266,4 +276,98 @@ export async function serviceCommand(command, home) {
         closeSync(lock);
         unlinkSync(lockPath);
     }
+}
+// Poll a file rather than inheriting child pipes: Windows launchers must not keep
+// a hidden service's output handles attached to the interactive terminal.
+export async function serviceCommand(command, home, background = false) {
+    if (!["start", "restart"].includes(command) || background)
+        return backgroundCommand(command, home);
+    const abort = new AbortController();
+    let child;
+    let offset = 0;
+    const logPath = join(home, "runtime", "service.log");
+    if (existsSync(logPath))
+        offset = statSync(logPath).size;
+    const { StringDecoder } = await import("node:string_decoder");
+    const decoder = new StringDecoder("utf8");
+    const poll = () => {
+        if (!existsSync(logPath))
+            return;
+        const fd = openSync(logPath, "r");
+        try {
+            const size = fstatSync(fd).size;
+            if (size < offset)
+                offset = 0;
+            const buffer = Buffer.alloc(Math.min(size - offset, 65536));
+            const count = readSync(fd, buffer, 0, buffer.length, offset);
+            offset += count;
+            if (count)
+                process.stdout.write(decoder.write(buffer.subarray(0, count)));
+        }
+        finally {
+            closeSync(fd);
+        }
+    };
+    const stop = () => abort.abort();
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
+    const timer = setInterval(poll, 200);
+    console.log("Foreground session — Ctrl+C stops the service and disconnects devices.");
+    try {
+        await backgroundCommand(command, home, {
+            signal: abort.signal,
+            spawned: (value) => {
+                child = value;
+            },
+        });
+        while (!abort.signal.aborted) {
+            const current = state(home);
+            if (!current || current.pid !== child?.pid)
+                break;
+            if (child?.exitCode !== null || child?.signalCode !== null)
+                throw Error("Service exited unexpectedly; see the log above");
+            await sleep(200);
+        }
+    }
+    catch (error) {
+        if (!abort.signal.aborted)
+            throw error;
+    }
+    finally {
+        clearInterval(timer);
+        try {
+            if (child) {
+                const current = state(home);
+                if (current && current.pid === child.pid) {
+                    await control(current, true).catch(() => { });
+                    for (let n = 0; n < 50 && child.exitCode === null && child.signalCode === null; n++)
+                        await sleep(100);
+                }
+                // Also cancel a service still loading Pi, before its control port exists.
+                if (child.exitCode === null && child.signalCode === null) {
+                    child.kill();
+                    for (let n = 0; n < 30 && child.exitCode === null && child.signalCode === null; n++)
+                        await sleep(100);
+                    if (child.exitCode === null && child.signalCode === null)
+                        throw Error("Service has not stopped; inspect status before restarting");
+                }
+                if (current &&
+                    state(home)?.id === current.id &&
+                    current.pid === child.pid)
+                    unlinkSync(statePath(home));
+                const pendingPath = join(home, "runtime", "starting.json");
+                if (existsSync(pendingPath) &&
+                    JSON.parse(readPrivate(pendingPath)).pid === child.pid)
+                    unlinkSync(pendingPath);
+            }
+            poll();
+            process.stdout.write(decoder.end());
+        }
+        finally {
+            process.removeListener("SIGINT", stop);
+            process.removeListener("SIGTERM", stop);
+        }
+    }
+    console.log("Chat2Pi stopped");
+    return true;
 }

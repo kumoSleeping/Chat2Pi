@@ -88,6 +88,24 @@ async function oauth(login) {
     html = await page.text(),
     id = html.match(/name="request" value="([^"]+)"/)[1],
     cookie = page.headers.get("set-cookie").split(";")[0];
+  assert(!html.includes('name="account_id"'));
+  // A connection key cannot be reassigned to another group by an old client.
+  for (const invalid of [
+    { account_id: "not-this-group", owner_key: login.login_key },
+    { owner_key: "invalid-key" },
+  ]) {
+    const denied = await request("/approve", {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        Origin: base,
+        Cookie: cookie,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ request: id, ...invalid }),
+    });
+    assert.notEqual(denied.status, 302);
+  }
   const consent = await request("/approve", {
     method: "POST",
     redirect: "manual",
@@ -98,7 +116,6 @@ async function oauth(login) {
     },
     body: new URLSearchParams({
       request: id,
-      account_id: login.account_id,
       owner_key: login.login_key,
     }),
   });
@@ -229,6 +246,12 @@ try {
       await api(admin, { action: "create_account", account_id: "alice" }),
     ),
     alice = await getClaim(aTicket);
+  assert.equal(aTicket.credential_type, "account");
+  assert.deepEqual(Object.keys(alice).sort(), [
+    "account_id",
+    "login_key",
+    "server_url",
+  ]);
   assert.equal(
     (await post("/claim", { code: new URL(aTicket.claim_url).hash.slice(1) }))
       .status,
@@ -329,6 +352,8 @@ try {
     await ok(await api(bob, { action: "bind_device", device_id: "same-pc" })),
   );
   assert.notEqual(ab.device_key, bb.device_key);
+  assert.deepEqual(Object.keys(ab).sort(), ["binding", "device_key"]);
+  assert(!JSON.stringify(ab).includes(alice.login_key));
   const copied = await request("/agent", {
     headers: {
       Upgrade: "websocket",

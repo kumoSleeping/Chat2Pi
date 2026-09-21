@@ -52,7 +52,7 @@ export function authorizationPage(input: {
   redirectUri: string;
 }) {
   return page(
-    `<h1>Connect your computer</h1><form method="post" action="/approve"><input type="hidden" name="request" value="${escape(input.id)}"><label class="field"><span class="field-label">Account</span><input name="account_id" required autocomplete="username" autocapitalize="none" spellcheck="false"></label><label class="field"><span class="field-label">Login key</span><input name="owner_key" type="password" required autocomplete="off"></label><button type="submit">Authorize connection</button></form><p class="permission">Allow enabled tools to read and write files and run commands.</p><details><summary>Connection details</summary><dl><dt>Application</dt><dd>${escape(input.clientName)}</dd><dt>Return address</dt><dd>${escape(input.redirectUri)}</dd></dl></details>`,
+    `<h1>Connect your computers</h1><p class="intro">Use the connection key from your account file when adding Chat2Pi to ChatGPT.</p><form method="post" action="/approve"><input type="hidden" name="request" value="${escape(input.id)}"><label class="field"><span class="field-label">Connection key</span><input name="owner_key" type="password" required autocomplete="off"></label><button type="submit">Authorize connection</button></form><p class="permission">Allow enabled tools to read and write files and run commands.</p><details><summary>Connection details</summary><dl><dt>Application</dt><dd>${escape(input.clientName)}</dd><dt>Return address</dt><dd>${escape(input.redirectUri)}</dd></dl></details>`,
     "Authorize connection",
     {
       "Set-Cookie": `pi_consent=${input.csrf}; HttpOnly; Secure; SameSite=Lax; Path=/approve; Max-Age=300`,
@@ -73,7 +73,10 @@ button.onclick=async()=>{
     const response=await fetch('/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:token})});
     if(!response.ok)throw Error('This link is no longer valid. Request new credentials.');
     const value=await response.json(),blob=new Blob([JSON.stringify(value,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
-    link.href=url;link.download=value.binding?value.binding.device_id+'.json':'chat2pi-credentials.json';link.textContent='Download again';
+    const device=!!value.binding;
+    link.href=url;link.download=device?value.binding.device_id+'.json':'link_chatgpt_plugin_oauth_'+value.account_id+'.json';link.textContent='Download again';
+    document.querySelector('h1').textContent=device?'Device configuration':'Connection account';
+    const help=document.createElement('p');help.className='intro';help.textContent=device?'Import this file on the target computer, then run chat2pi start. It contains only the device credentials.':'Keep this account file for ChatGPT setup. Enter its login_key in the Connection key field when authorizing the plugin. It contains no device credentials.';result.append(help);
     result.append(document.createTextNode(link.download),document.createElement('br'),link);link.click();
     button.textContent='Claimed';
   }catch(error){result.dataset.error='true';result.textContent=error instanceof TypeError?'Connection lost. Try again, or request new credentials if already claimed.':error.message;button.disabled=false;button.textContent='Try again';}
@@ -88,7 +91,7 @@ button.onclick=async()=>{
 export function authorizationErrorPage() {
   const nonce = crypto.randomUUID();
   return page(
-    `<h1>Unable to connect</h1><p class="intro">Check your account and login key. If authorization has expired, start again.</p><button id="back" type="button">Go back</button><script nonce="${nonce}">document.getElementById('back').onclick=()=>history.back();</script>`,
+    `<h1>Unable to connect</h1><p class="intro">Check your connection key. If authorization has expired, start again.</p><button id="back" type="button">Go back</button><script nonce="${nonce}">document.getElementById('back').onclick=()=>history.back();</script>`,
     "Unable to connect",
     {
       "Content-Security-Policy": `${pageHeaders["Content-Security-Policy"]}; script-src 'nonce-${nonce}'`,

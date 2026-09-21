@@ -55,10 +55,19 @@ export function loadAgents(
   credentialsPath?: string,
 ): AgentConfig[] {
   const raw = JSON.parse(readPrivate(path));
-  if (raw.version !== 1) return [agentSchema.parse(raw)];
-  const binding = bindingSchema.parse(raw),
+  if (!raw.binding && raw.version !== 1) return [agentSchema.parse(raw)];
+  const bundle = raw.binding ? deviceBundleSchema.parse(raw) : undefined;
+  const binding = bundle?.binding ?? bindingSchema.parse(raw),
     credentials = localCredentialsSchema.parse(
-      JSON.parse(readPrivate(credentialsPath ?? path + ".credentials.json")),
+      bundle
+        ? {
+            device_key: bundle.device_key,
+            local: bundle.local,
+            proxy_url: bundle.proxy_url,
+          }
+        : JSON.parse(
+            readPrivate(credentialsPath ?? path + ".credentials.json"),
+          ),
     );
   if (hash(credentials.device_key) !== binding.device_key_sha256)
     throw Error("Device credential does not match binding");
@@ -76,7 +85,16 @@ export function loadAgents(
     }),
   ];
 }
-const loginSchema = z
+export const deviceBundleSchema = z
+  .object({
+    binding: bindingSchema,
+    device_key: z.string().min(32).max(256),
+    access: z.enum(["read", "workspace", "full"]).optional(),
+    local: localCredentialsSchema.shape.local.optional(),
+    proxy_url: localCredentialsSchema.shape.proxy_url,
+  })
+  .strict();
+export const loginSchema = z
   .object({
     server_url: z.string().url(),
     account_id: identifier,
@@ -105,6 +123,7 @@ export type AccountOptions = {
   access?: string;
   tools?: string;
   start?: boolean;
+  background?: boolean;
 };
 const json = (v: unknown) => JSON.stringify(v, null, 2) + "\n";
 async function post(
@@ -145,9 +164,18 @@ export async function accountCommand(
   )
     return false;
   const home = homeDirectory(o.home);
+  if (["login-import", "device-import"].includes(command)) {
+    const { migrateHome } = await import("./migration.js");
+    migrateHome(home);
+  }
   if (command === "login-import") {
     if (!o.bundle) throw Error("login-import requires --bundle login.json");
-    const login = loginSchema.parse(JSON.parse(readPrivate(resolve(o.bundle))));
+    const raw = JSON.parse(readPrivate(resolve(o.bundle)));
+    if (raw.binding || raw.device_key)
+      throw Error(
+        "This is a device file; use device-import on the target computer",
+      );
+    const login = loginSchema.parse(raw);
     const path = loginPath(home, login.server_url, login.account_id);
     if (existsSync(path))
       throw Error("Account credential already exists; not overwritten");
@@ -161,7 +189,7 @@ export async function accountCommand(
     const id = identifier.parse(o.id);
     const access = z
       .enum(["read", "workspace", "full"])
-      .parse(o.access ?? "read");
+      .parse(o.access ?? "full");
     const tools =
       access === "full"
         ? [...toolName.options]
@@ -174,7 +202,7 @@ export async function accountCommand(
     const output = resolve(o.out ?? join(homedir(), "Downloads", id + ".json"));
     let bundle: any;
     if (existsSync(output)) {
-      bundle = JSON.parse(readPrivate(output));
+      bundle = deviceBundleSchema.parse(JSON.parse(readPrivate(output)));
       const b = bindingSchema.parse(bundle.binding);
       if (
         typeof bundle.device_key !== "string" ||
@@ -244,7 +272,7 @@ export async function accountCommand(
       );
     }
     console.log(
-      `Device ready: ${id}\nAccount: ${login.account_id}\nAccess: ${access}\nFile: ${output}\nTransfer this file to the target computer and run device-import --bundle <file> --start${access === "full" ? " --access full" : ""}`,
+      `Device file ready: ${id}\nAccess: ${access}\nFile: ${output}\nTransfer this file to the target computer and run device-import --bundle <file>`,
     );
     return true;
   }
@@ -260,8 +288,13 @@ export async function accountCommand(
       throw Error(
         "--start uses default binding paths; omit --config and --credentials",
       );
-    const bundle = JSON.parse(readPrivate(resolve(o.bundle))),
-      binding = bindingSchema.parse(bundle.binding);
+    const raw = JSON.parse(readPrivate(resolve(o.bundle)));
+    if (raw.login_key)
+      throw Error(
+        "This is an account file for ChatGPT authorization; use a device file on this computer",
+      );
+    const bundle = deviceBundleSchema.parse(raw),
+      binding = bundle.binding;
     const path = o.config
         ? resolve(o.config)
         : bindingPath(
@@ -280,32 +313,48 @@ export async function accountCommand(
       throw Error("Invalid device bundle");
     const access = z
       .enum(["read", "workspace", "full"])
-      .parse(o.access ?? (o.unrestricted ? "full" : (bundle.access ?? "read")));
-    if (access === "full" && !o.unrestricted && o.access !== "full")
-      throw Error(
-        "This file requests full computer access. Confirm on this computer by adding --access full",
+      .parse(
+        o.access ??
+          (o.unrestricted
+            ? "full"
+            : (bundle.access ??
+              (bundle.local
+                ? bundle.local.access === "unrestricted"
+                  ? "full"
+                  : "workspace"
+                : "full"))),
       );
     const tools = binding.tools.filter(
       (t) =>
-        access === "full" ||
-        (access === "workspace"
-          ? t !== "bash"
-          : ["read", "ls", "find", "grep"].includes(t)),
+        (!bundle.local || bundle.local.tools.includes(t)) &&
+        (access === "full" ||
+          (access === "workspace"
+            ? t !== "bash"
+            : ["read", "ls", "find", "grep"].includes(t))),
     );
-    const workspace = resolve(o.workspace ?? join(homedir(), "PiWorkspace"));
+    const workspace = resolve(
+      o.workspace ?? bundle.local?.workspace ?? join(homedir(), "PiWorkspace"),
+    );
     const local = localCredentialsSchema.parse({
       device_key: bundle.device_key,
+      proxy_url: bundle.proxy_url,
       local: {
+        ...bundle.local,
         workspace,
         access: access === "full" ? "unrestricted" : "workspace",
         tools,
       },
     });
+    // Explicit legacy paths remain supported; managed storage uses one device file.
+    const outputs: [string, unknown][] =
+      o.config || o.credentials
+        ? [
+            [cp, local],
+            [path, binding],
+          ]
+        : [[path, { binding, ...local }]];
     // Identical imports can resume a partial write or a failed service start.
-    for (const [file, value] of [
-      [cp, local],
-      [path, binding],
-    ] as const) {
+    for (const [file, value] of outputs) {
       if (
         existsSync(file) &&
         json(JSON.parse(readPrivate(file))) !== json(value)
@@ -315,14 +364,18 @@ export async function accountCommand(
         );
     }
     mkdirSync(workspace, { recursive: true });
-    if (!existsSync(cp)) savePrivate(cp, json(local));
-    if (!existsSync(path)) savePrivate(path, json(binding));
+    for (const [file, value] of outputs)
+      if (!existsSync(file)) savePrivate(file, json(value));
     console.log(
-      `Device: ${binding.device_id}\nAccount: ${binding.account_id}\nWorkspace: ${workspace}\nAccess: ${access}\nTools: ${tools.join(", ")}`,
+      `Device: ${binding.device_id}\nWorkspace: ${workspace}\nAccess: ${access}\nTools: ${tools.join(", ")}`,
     );
     if (o.start) {
       const { serviceCommand } = await import("./service.js");
-      await serviceCommand("restart", home);
+      await serviceCommand(
+        o.background ? "restart" : "start",
+        home,
+        o.background,
+      );
     }
     return true;
   }
@@ -343,18 +396,27 @@ export async function accountCommand(
   }
   if (command === "claim") {
     if (!o.url) throw Error("claim requires --url claim-link");
-    const output = o.out
-      ? resolve(o.out)
-      : join(home, "downloads", randomUUID() + ".json");
-    if (existsSync(output)) throw Error("Output already exists");
+    let output = o.out ? resolve(o.out) : undefined;
+    if (output && existsSync(output)) throw Error("Output already exists");
     const url = new URL(o.url);
     if (url.pathname !== "/claim" || !url.hash)
       throw Error("Invalid claim URL");
     const result = await post(url.origin, "/claim", {
       code: url.hash.slice(1),
     });
-    savePrivate(output, json(result));
-    console.log(`Credentials saved privately: ${output}`);
+    const device = "binding" in result;
+    const credentials = device
+      ? deviceBundleSchema.parse(result)
+      : loginSchema.parse(result);
+    const filename = device
+      ? result.binding.device_id + ".json"
+      : "link_chatgpt_plugin_oauth_" + result.account_id + ".json";
+    // A unique containing folder preserves both the requested filename and old downloads.
+    output ??= join(home, "downloads", randomUUID(), filename);
+    savePrivate(output, json(credentials));
+    console.log(
+      `${device ? "Device configuration" : "ChatGPT plugin account credentials"} saved privately: ${output}`,
+    );
     return true;
   }
   if (command === "call") {

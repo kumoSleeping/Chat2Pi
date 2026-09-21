@@ -80,7 +80,9 @@ export function startAgent(config) {
                 requestId = call.request_id;
                 if (call.account_id !== config.account_id)
                     throw new Error("Wrong account; refused before execution");
+                console.log(`Tool started: ${config.device.device_id}/${call.name}`);
                 const result = await runner.call(call.device_id, call.name, call.arguments);
+                console.log(`Tool finished: ${config.device.device_id}/${call.name}${result.isError ? " (error)" : ""}`);
                 const payload = JSON.stringify({
                     type: "result",
                     request_id: requestId,
@@ -96,6 +98,7 @@ export function startAgent(config) {
                     connection.close(1008, "Invalid call");
                     return;
                 }
+                console.error(`Tool failed: ${config.device.device_id} (request ${requestId})`);
                 if (connection.readyState === WebSocket.OPEN)
                     connection.send(JSON.stringify({
                         type: "result",
@@ -106,7 +109,9 @@ export function startAgent(config) {
                     }));
             }
         });
-        connection.on("error", () => { });
+        connection.on("error", (error) => {
+            console.error(`Device ${config.device.device_id}: connection failed (${error.code ?? "WebSocket handshake/network error"}); check network, server and device credentials.`);
+        });
         connection.on("close", () => {
             clearTimeout(heartbeat);
             clearInterval(keepalive);

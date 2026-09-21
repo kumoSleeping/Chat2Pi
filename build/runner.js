@@ -1,4 +1,4 @@
-import { fork } from "node:child_process";
+import { fork, execFileSync } from "node:child_process";
 export class Runner {
     device;
     busy = false;
@@ -51,8 +51,21 @@ export class Runner {
                     try {
                         if (process.platform !== "win32" && child.pid)
                             process.kill(-child.pid, "SIGKILL");
-                        else
-                            child.kill("SIGKILL");
+                        else if (child.pid &&
+                            child.exitCode === null &&
+                            child.signalCode === null) {
+                            // Terminate the worker and any command it launched on Windows.
+                            try {
+                                execFileSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+                                    stdio: "ignore",
+                                    windowsHide: true,
+                                    timeout: 3000,
+                                });
+                            }
+                            catch {
+                                child.kill("SIGKILL");
+                            }
+                        }
                     }
                     catch { }
                     error ? reject(error) : resolve(result);

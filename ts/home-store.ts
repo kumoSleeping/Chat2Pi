@@ -16,7 +16,8 @@ export function loginPath(home: string, url: string, account: string) {
   return join(
     home,
     "accounts",
-    `${serverTag(url)}--${identifier.parse(account)}.login.json`,
+    serverTag(url),
+    `link_chatgpt_plugin_oauth_${identifier.parse(account)}.json`,
   );
 }
 export function bindingPath(
@@ -27,8 +28,10 @@ export function bindingPath(
 ) {
   return join(
     home,
-    "bindings",
-    `${serverTag(url)}--${identifier.parse(account)}--${identifier.parse(device)}.binding.json`,
+    "devices",
+    serverTag(url),
+    identifier.parse(account),
+    `${identifier.parse(device)}.json`,
   );
 }
 export function filesIn(
@@ -43,14 +46,29 @@ export function filesIn(
     .map((x) => join(dir, x.name))
     .sort();
 }
-export const bindingFiles = (home: string) =>
-  filesIn(home, "bindings", ".binding.json");
+function jsonTree(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .flatMap((entry) => {
+      const path = join(dir, entry.name);
+      return entry.isDirectory()
+        ? jsonTree(path)
+        : entry.isFile() && entry.name.endsWith(".json")
+          ? [path]
+          : [];
+    })
+    .sort();
+}
+export const bindingFiles = (home: string) => [
+  ...filesIn(home, "bindings", ".binding.json"),
+  ...jsonTree(join(home, "devices")),
+];
 export function selectLogin(
   home: string,
   account?: string,
   url?: string,
 ): string {
-  const files = filesIn(home, "accounts", ".login.json").filter((path) => {
+  const files = jsonTree(join(home, "accounts")).filter((path) => {
     const login = JSON.parse(readPrivate(path));
     return (
       (!account || login.account_id === account) &&

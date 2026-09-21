@@ -4,6 +4,7 @@ import {
   bindingSchema,
   identifier,
   manageSchema,
+  toolName,
   type Binding,
   type Manage,
 } from "../ts/manifest";
@@ -201,14 +202,22 @@ export class Directory extends DurableObject<DirectoryEnv> {
   async approve(id: string, csrf: string, account: string, credential: string) {
     const hash = await digest(credential);
     return this.change((s) => {
-      const a = s.accounts[account],
+      // The connection key selects its own device group. Keep explicit IDs for
+      // older clients, but never let a mismatched ID fall back to another group.
+      const matches = Object.values(s.accounts).filter(
+        (a) =>
+          a.enabled &&
+          a.login_hash === hash &&
+          (!account || a.account_id === account),
+      );
+      const a = matches.length === 1 ? matches[0] : undefined,
         c = s.consents[id];
       if (!c || c.csrf !== csrf || !a?.enabled || a.login_hash !== hash)
         return null;
       delete s.consents[id];
       return {
         auth: c.auth,
-        identity: { accountId: account, generation: a.generation },
+        identity: { accountId: a.account_id, generation: a.generation },
       };
     });
   }
@@ -227,8 +236,10 @@ export class Directory extends DurableObject<DirectoryEnv> {
     return {
       claim_url: this.env.PUBLIC_URL + "/claim#" + code,
       expires_in: 300,
-      message:
-        "在浏览器领取凭证，链接五分钟内有效且仅能使用一次。不要把领取的密钥粘贴到聊天中。",
+      credential_type: binding ? "device" : "account",
+      message: binding
+        ? "下载设备配置，仅包含这台设备的凭证。导入目标电脑后运行 chat2pi start。领取链接五分钟内有效且仅能使用一次。"
+        : "下载连接账号凭证，仅包含账号信息和连接密钥；在 ChatGPT 添加插件的授权页面填写该密钥。领取链接五分钟内有效且仅能使用一次。不要把密钥粘贴到聊天中。",
     };
   }
   async claim(code: string) {
@@ -383,7 +394,7 @@ export class Directory extends DurableObject<DirectoryEnv> {
           a.enabled &&
           p.device_key_sha256 === binding.device_key_sha256 &&
           (p.name ?? p.device_id) === binding.device_name &&
-          JSON.stringify(p.tools ?? ["read", "ls", "find", "grep"]) ===
+          JSON.stringify(p.tools ?? [...toolName.options]) ===
             JSON.stringify(binding.tools)
         )
           return { binding };
@@ -402,7 +413,7 @@ export class Directory extends DurableObject<DirectoryEnv> {
           device_id: p.device_id,
           device_name: p.name ?? p.device_id,
           device_key_sha256: p.device_key_sha256 ?? (await digest(deviceKey)),
-          tools: p.tools ?? ["read", "ls", "find", "grep"],
+          tools: p.tools ?? [...toolName.options],
         });
         s.bindings[bk] = b;
         (s.activated ??= {})[bk] = false;
