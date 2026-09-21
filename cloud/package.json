@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev"
+    "dev": "wrangler dev",
+    "test": "wrangler deploy --dry-run --outdir ../.local/cloud-bundle && node test.mjs"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "*",
@@ -12,8 +13,9 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
-    "wrangler": "^4",
     "@cloudflare/workers-types": "*",
-    "typescript": "^5"
+    "miniflare": "^5.20260918.0-alpha",
+    "typescript": "^5",
+    "wrangler": "^4"
   }
 }

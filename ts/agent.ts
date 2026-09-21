@@ -9,6 +9,7 @@ const callSchema = z
     type: z.literal("call"),
     request_id: z.string().uuid(),
     device_id: z.string(),
+    account_id: z.string().optional(),
     name: z.string(),
     arguments: z.record(z.unknown()),
   })
@@ -33,6 +34,7 @@ export function startAgent(config: AgentConfig) {
       headers: {
         Authorization: `Bearer ${config.device_token}`,
         "X-Device-Id": config.device.device_id,
+        ...(config.account_id ? { "X-Account-Id": config.account_id } : {}),
       },
       maxPayload: 1024 * 1024,
       handshakeTimeout: 15_000,
@@ -53,6 +55,7 @@ export function startAgent(config: AgentConfig) {
         JSON.stringify({
           type: "hello",
           protocol: 1,
+          account_id: config.account_id,
           tools: config.device.tools,
           platform: process.platform,
           pi_version: piVersion,
@@ -70,14 +73,19 @@ export function startAgent(config: AgentConfig) {
         const message = JSON.parse(raw.toString());
         if (
           message.type === "ready" &&
-          message.device_id === config.device.device_id
+          message.device_id === config.device.device_id &&
+          message.account_id === config.account_id
         ) {
           delay = 1000;
-          console.log(`Device online: ${config.device.device_id}`);
+          console.log(
+            `Device online: ${config.device.device_id}${config.account_id ? ` (account: ${config.account_id})` : ""}`,
+          );
           return;
         }
         const call = callSchema.parse(message);
         requestId = call.request_id;
+        if (call.account_id !== config.account_id)
+          throw new Error("Wrong account; refused before execution");
         const result = await runner.call(
           call.device_id,
           call.name,

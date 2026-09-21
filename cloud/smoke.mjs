@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { randomBytes, createHash } from "node:crypto";
-const base = process.argv[2] || "https://chat2pi.kumosleeping.workers.dev";
-const owner = readFileSync(
-  new URL("../.local/owner-key", import.meta.url),
-  "utf8",
-).trim();
+const credentials = JSON.parse(
+  readFileSync(
+    process.argv[2] || new URL("../.local/kumo.login.json", import.meta.url),
+    "utf8",
+  ),
+);
+const base = credentials.server_url;
+const owner = credentials.login_key;
+const deviceId = process.argv[3] || "kumo-macBook-m2";
 const random = () => randomBytes(32).toString("base64url");
 const req = async (path, options = {}) =>
   fetch(base + path, { ...options, signal: AbortSignal.timeout(25000) });
@@ -54,7 +58,11 @@ const consent = (key, origin = base) =>
       Cookie: cookie,
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({ request: id, owner_key: key }),
+    body: new URLSearchParams({
+      request: id,
+      account_id: credentials.account_id,
+      owner_key: key,
+    }),
   });
 assert.equal((await consent(owner, "https://invalid.example")).status, 403);
 assert.equal((await consent("wrong")).status, 403);
@@ -104,19 +112,28 @@ await rpc("initialize", {
   clientInfo: { name: "cloud-smoke", version: "1" },
 });
 const tools = await rpc("tools/list", {});
-assert.equal(tools.tools.length, 8);
+assert.equal(tools.tools.length, 9);
 const list = await rpc("tools/call", { name: "list_devices", arguments: {} });
 const devices = JSON.parse(list.content[0].text);
 assert(
   devices.devices.some(
-    (d) => d.device_id === "kumo-macBook-m2" && d.status === "online",
+    (d) => d.device_id === deviceId && d.status === "online",
   ),
   JSON.stringify(devices),
 );
-console.log("Eight tools and correct online Mac confirmed");
+console.log("Nine tools and correct online device confirmed");
+const identity = await rpc("tools/call", {
+  name: "manage",
+  arguments: { action: "me" },
+});
+assert.equal(
+  JSON.parse(identity.content[0].text).account_id,
+  credentials.account_id,
+);
+console.log("MCP manage identity verified");
 const read = await rpc("tools/call", {
   name: "read",
-  arguments: { device_id: "kumo-macBook-m2", path: "README.md", limit: 3 },
+  arguments: { device_id: deviceId, path: "README.md", limit: 3 },
 });
 assert(!read.isError, JSON.stringify(read));
 assert.match(JSON.stringify(read), /Chat2Pi/);

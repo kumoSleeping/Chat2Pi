@@ -11,14 +11,27 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { DeviceRoom, type RoomEnv } from "./room";
 import catalog from "./catalog.json";
-export { DeviceRoom };
+import { Directory, type Identity } from "./directory";
+import { identifier, manageTool } from "../ts/manifest";
+export { DeviceRoom, Directory };
 interface Env extends RoomEnv {
   ROOM: DurableObjectNamespace<DeviceRoom>;
   OAUTH_KV: KVNamespace;
   OAUTH_PROVIDER: OAuthHelpers;
   PUBLIC_URL: string;
+  BOOTSTRAP_KEY_SHA256: string;
 }
-const room = (env: Env) => env.ROOM.getByName("owner");
+const room = (env: Env, account: string) =>
+  env.ROOM.getByName("account:" + account);
+const directory = (env: Env) => env.DIRECTORY.getByName("directory");
+async function manage(env: Env, identity: Identity, input: unknown) {
+  const result = await directory(env).manage(identity, input);
+  if ((input as any)?.action === "list_devices")
+    return await room(env, (result as any).account_id).list(
+      (result as any).account_id,
+    );
+  return result;
+}
 const escape = (s: string) =>
   s.replace(
     /[&<>"']/g,
@@ -45,29 +58,52 @@ const html = (body: string, extra: Record<string, string> = {}) =>
       },
     },
   );
-class McpApi extends WorkerEntrypoint<
-  Env,
-  { userId: string; scope: string[] }
-> {
+function claimPage() {
+  const nonce = crypto.randomUUID();
+  return html(
+    `<h1>领取凭证</h1><p>凭证仅显示一次，请保存在自己的电脑，不要粘贴到聊天中。</p><button id="claim">领取并下载</button><pre id="result"></pre><script nonce="${nonce}">
+  const token=location.hash.slice(1);history.replaceState(null,'',location.pathname);
+  document.getElementById('claim').onclick=async()=>{
+    const button=document.getElementById('claim');button.disabled=true;
+    try {const response=await fetch('/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:token})});
+      if(!response.ok)throw Error('链接已失效、已使用或被撤销');
+      const value=await response.json(),data=JSON.stringify(value,null,2),blob=new Blob([data],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='chat2pi-credentials.json';a.click();
+      document.getElementById('result').textContent=data;
+    }catch(error){document.getElementById('result').textContent=error.message;}
+  };</script>`,
+    {
+      "Content-Security-Policy": `default-src 'none'; base-uri 'none'; frame-ancestors 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src 'self'`,
+      "Referrer-Policy": "no-referrer",
+    },
+  );
+}
+class McpApi extends WorkerEntrypoint<Env, Identity & { scope: string[] }> {
   async fetch(request: Request) {
     if (new URL(request.url).pathname !== "/mcp")
       return new Response("Not found", { status: 404 });
     if (
-      this.ctx.props.userId !== "owner" ||
+      !(await directory(this.env).identity(this.ctx.props)) ||
       !this.ctx.props.scope?.includes("pi:tools")
     )
-      return new Response("Forbidden", { status: 403 });
-    const registry = room(this.env);
+      return new Response("Authentication required", {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": `Bearer resource_metadata="${this.env.PUBLIC_URL}/.well-known/oauth-protected-resource"`,
+        },
+      });
+    const identity = this.ctx.props;
+    const registry = room(this.env, identity.accountId);
     const server = new Server(
-      { name: "Chat with Pi Tools", version: "0.3.0" },
+      { name: "Chat with Pi Tools", version: "0.4.0" },
       {
         capabilities: { tools: {} },
         instructions:
-          "先调用 list_devices 查询在线电脑。每次调用必须指定用户选定的 device_id。设备离线或报错时不得改用其他电脑。超时、断线后不能自动重试写入或命令。",
+          "先调用 list_devices 查询在线电脑。manage 要求确认时，获得用户确认后才能提交 confirmation_id。每次调用必须指定用户选定的 device_id。设备离线或报错时不得改用其他电脑。超时、断线后不能自动重试写入或命令。",
       },
     );
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
+        manageTool,
         {
           name: "list_devices",
           description:
@@ -110,9 +146,22 @@ class McpApi extends WorkerEntrypoint<
     }));
     server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
       try {
+        if (params.name === "manage")
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  await manage(this.env, identity, params.arguments ?? {}),
+                ),
+              },
+            ],
+          };
         if (params.name === "list_devices") {
           // RPC results carry disposal symbols; MCP payloads must be plain JSON.
-          const list = JSON.parse(JSON.stringify(await registry.list()));
+          const list = JSON.parse(
+            JSON.stringify(await registry.list(identity.accountId)),
+          );
           return {
             content: [{ type: "text" as const, text: JSON.stringify(list) }],
           };
@@ -123,7 +172,14 @@ class McpApi extends WorkerEntrypoint<
         if (typeof device_id !== "string" || !device_id)
           throw Error("device_id is required; call list_devices");
         return JSON.parse(
-          JSON.stringify(await registry.call(device_id, params.name, args)),
+          JSON.stringify(
+            await registry.call(
+              identity.accountId,
+              device_id,
+              params.name,
+              args,
+            ),
+          ),
         );
       } catch (e) {
         return {
@@ -153,10 +209,47 @@ class McpApi extends WorkerEntrypoint<
 const defaultHandler: ExportedHandler<Env> = {
   async fetch(request, env) {
     const url = new URL(request.url),
-      r = room(env);
+      r = directory(env);
     if (url.pathname === "/healthz")
       return Response.json({ status: "ok", service: "chat2pi-cloud" });
-    if (url.pathname === "/agent") return r.fetch(request);
+    if (url.pathname === "/agent") {
+      const account = request.headers.get("X-Account-Id") ?? "";
+      if (!identifier.safeParse(account).success)
+        return new Response("Unauthorized", { status: 401 });
+      return room(env, account).fetch(request);
+    }
+    if (url.pathname === "/bootstrap" && request.method === "POST") {
+      if (!(await r.limit("bootstrap", 10)))
+        return new Response("Rate limited", { status: 429 });
+      const body = (await request.json()) as any;
+      return Response.json(
+        await r.bootstrap(
+          (request.headers.get("Authorization") ?? "").replace(/^Bearer /, ""),
+          body.account_id,
+          body.name,
+        ),
+      );
+    }
+    if (url.pathname === "/api/manage" && request.method === "POST") {
+      if (!(await r.limit("api-login", 60)))
+        return new Response("Rate limited", { status: 429 });
+      const identity = await r.authenticate(
+        request.headers.get("X-Account-Id") ?? "",
+        (request.headers.get("Authorization") ?? "").replace(/^Bearer /, ""),
+      );
+      if (!identity) return new Response("Unauthorized", { status: 401 });
+      return Response.json(await manage(env, identity, await request.json()));
+    }
+    if (url.pathname === "/claim" && request.method === "POST") {
+      if (!(await r.limit("claim", 30)))
+        return new Response("Rate limited", { status: 429 });
+      const body = (await request.json()) as any;
+      if (typeof body.code !== "string" || !/^[a-f0-9]{64}$/.test(body.code))
+        return new Response("Invalid claim", { status: 400 });
+      return Response.json(await r.claim(body.code));
+    }
+    if (url.pathname === "/claim" && request.method === "GET")
+      return claimPage();
     if (url.pathname === "/authorize" && request.method === "GET") {
       if (!(await r.limit("authorize", 30)))
         return new Response("Please retry later", { status: 429 });
@@ -171,7 +264,7 @@ const defaultHandler: ExportedHandler<Env> = {
       if (!client) return new Response("Unknown client", { status: 400 });
       const { id, csrf } = await r.consent(auth);
       return html(
-        `<h1>连接 Chat with Pi Tools</h1><p>允许 ChatGPT 调用你登记的电脑工具，包括已经启用的文件写入和命令执行。</p><p>客户端：${escape(client.clientName ?? auth.clientId)}</p><p>返回地址：${escape(auth.redirectUri)}</p><form method="post" action="/approve"><input type="hidden" name="request" value="${id}"><label>个人授权密钥<input name="owner_key" type="password" required autocomplete="off"></label><button type="submit">授权连接</button></form>`,
+        `<h1>连接 Chat with Pi Tools</h1><p>允许 ChatGPT 调用你登记的电脑工具，包括已经启用的文件写入和命令执行。</p><p>客户端：${escape(client.clientName ?? auth.clientId)}</p><p>返回地址：${escape(auth.redirectUri)}</p><form method="post" action="/approve"><input type="hidden" name="request" value="${id}"><label>服务账号<input name="account_id" required autocomplete="username"></label><label>账号登录密钥<input name="owner_key" type="password" required autocomplete="off"></label><button type="submit">授权连接</button></form>`,
         {
           "Set-Cookie": `pi_consent=${csrf}; HttpOnly; Secure; SameSite=Lax; Path=/approve; Max-Age=300`,
         },
@@ -193,15 +286,16 @@ const defaultHandler: ExportedHandler<Env> = {
       const auth = await r.approve(
         form.get("request") ?? "",
         csrf,
+        form.get("account_id") ?? "",
         form.get("owner_key") ?? "",
       );
       if (!auth) return new Response("Authorization failed", { status: 403 });
       const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-        request: auth,
-        userId: "owner",
+        request: auth.auth,
+        userId: auth.identity.accountId,
         metadata: { source: "personal-consent" },
         scope: ["pi:tools"],
-        props: { userId: "owner", scope: ["pi:tools"] },
+        props: { ...auth.identity, scope: ["pi:tools"] },
       });
       return new Response(null, {
         status: 302,
@@ -226,17 +320,32 @@ export default {
       request.headers.get("Origin") !== env.PUBLIC_URL
     )
       return new Response("Forbidden", { status: 403 });
-    if (request.method === "POST") {
-      const text = await request.clone().text();
-      if (
-        new TextEncoder().encode(text).length >
-        (url.pathname === "/mcp" ? 1048576 : 16384)
-      )
-        return new Response("Too large", { status: 413 });
+    if (request.method === "POST" && request.body) {
+      const reader = request.body.getReader(),
+        chunks: Uint8Array[] = [];
+      let length = 0;
+      const limit = url.pathname === "/mcp" ? 1048576 : 16384;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        length += value.length;
+        if (length > limit) {
+          void reader.cancel();
+          return new Response("Too large", { status: 413 });
+        }
+        chunks.push(value);
+      }
+      const bytes = new Uint8Array(length);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.length;
+      }
+      request = new Request(request, { body: bytes });
     }
     if (
       url.pathname === "/register" &&
-      !(await room(env).limit("register", 10))
+      !(await directory(env).limit("register", 10))
     )
       return new Response("Registration limited", { status: 429 });
     const provider = new OAuthProvider<Env>({
@@ -258,10 +367,12 @@ export default {
       },
     });
     try {
-      const response = await provider.fetch(request, env, ctx);
-      if (response.status !== 101)
+      let response = await provider.fetch(request, env, ctx);
+      if (response.status !== 101) {
+        response = new Response(response.body, response);
         for (const [k, v] of Object.entries(headers))
-          response.headers.set(k, v);
+          if (!response.headers.has(k)) response.headers.set(k, v);
+      }
       return response;
     } catch {
       return new Response("Invalid request", { status: 400, headers });

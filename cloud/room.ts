@@ -1,26 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
-export type Registration = {
-  device_id: string;
-  token_hash: string;
-  tools: string[];
-};
+import { Directory } from "./directory";
+import { digest } from "./crypto";
 export interface RoomEnv {
-  DEVICE_CONFIG: string;
-  OWNER_KEY_HASH: string;
-}
-export async function digest(value: string) {
-  return [
-    ...new Uint8Array(
-      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
-    ),
-  ]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  DIRECTORY: DurableObjectNamespace<Directory>;
 }
 type Attachment = {
   id: string;
+  account: string;
   tokenHash: string;
   at: number;
   ready: boolean;
@@ -42,63 +29,82 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
       new WebSocketRequestResponsePair("ping", "pong"),
     );
   }
-  registered(): Registration[] {
-    return JSON.parse(this.env.DEVICE_CONFIG || "[]");
+  directory() {
+    return this.env.DIRECTORY.getByName("directory");
   }
-  live(ws: WebSocket) {
+  async registered(account: string) {
+    return await this.directory().registered(account);
+  }
+  async live(ws: WebSocket) {
     const a = ws.deserializeAttachment() as Attachment;
-    const registered = this.registered().find((d) => d.device_id === a.id);
+    const registered = await this.directory().checkBinding(
+      a.account,
+      a.id,
+      a.tokenHash,
+    );
     const last =
       this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? a.at;
     return (
       ws.readyState === 1 &&
       Date.now() - Math.max(last, a.at) < 70000 &&
-      registered?.token_hash === a.tokenHash
+      !!registered
     );
   }
-  sockets() {
-    return this.ctx.getWebSockets().filter((ws) => {
-      if (this.live(ws)) return true;
-      this.fail(ws);
-      try {
-        ws.close(1008, "Device expired");
-      } catch {}
-      return false;
-    });
+  async sockets() {
+    const live: WebSocket[] = [];
+    for (const ws of this.ctx.getWebSockets()) {
+      if (await this.live(ws)) live.push(ws);
+      else {
+        this.fail(ws);
+        try {
+          ws.close(1008, "Binding revoked or expired");
+        } catch {}
+      }
+    }
+    return live;
   }
-  async fetch(request: Request) {
+  async fetch(request: Request): Promise<Response> {
+    return this.ctx.blockConcurrencyWhile(() => this.connectDevice(request));
+  }
+  private async connectDevice(request: Request) {
     if (
       request.headers.get("Upgrade")?.toLowerCase() !== "websocket" ||
       request.headers.has("Origin")
     )
       return new Response("Forbidden", { status: 403 });
     const id = request.headers.get("X-Device-Id");
-    const d = this.registered().find((d) => d.device_id === id);
+    const account = request.headers.get("X-Account-Id") ?? "";
+    const d = (await this.registered(account)).find((d) => d.device_id === id);
     const bearer = request.headers.get("Authorization") ?? "";
     if (
       !d ||
       !bearer.startsWith("Bearer ") ||
-      (await digest(bearer.slice(7))) !== d.token_hash
+      (await digest(bearer.slice(7))) !== d.device_key_sha256
     )
       return new Response("Unauthorized", { status: 401 });
     if (
-      this.sockets().some(
+      (await this.sockets()).some(
         (ws) => (ws.deserializeAttachment() as Attachment).id === id,
       )
     )
       return new Response("Already connected", { status: 409 });
+    const existingAccount = await this.ctx.storage.get<string>("account");
+    if (existingAccount && existingAccount !== account)
+      return new Response("Wrong account", { status: 403 });
+    await this.ctx.storage.put("account", account);
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({
       id: d.device_id,
-      tokenHash: d.token_hash,
+      account,
+      tokenHash: d.device_key_sha256,
       at: Date.now(),
       ready: false,
       tools: [],
     } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
   }
-  webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
+  async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
     try {
       if (
         typeof raw !== "string" ||
@@ -106,13 +112,16 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
       )
         throw Error("Frame too large");
       const a = ws.deserializeAttachment() as Attachment;
-      if (!this.live(ws)) throw Error("Expired connection");
+      if (!(await this.live(ws))) throw Error("Expired connection");
       const m = JSON.parse(raw);
       if (!a.ready) {
-        const d = this.registered().find((d) => d.device_id === a.id)!;
+        const d = (await this.registered(a.account)).find(
+          (d) => d.device_id === a.id,
+        )!;
         if (
           m.type !== "hello" ||
           m.protocol !== 1 ||
+          m.account_id !== a.account ||
           !Array.isArray(m.tools) ||
           m.tools.length > 32 ||
           typeof m.platform !== "string" ||
@@ -125,11 +134,19 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
           ...a,
           ready: true,
           at: Date.now(),
-          tools: m.tools.filter((t: string) => d.tools.includes(t)),
+          tools: m.tools.filter((t: string) =>
+            (d.tools as string[]).includes(t),
+          ),
           platform: m.platform,
           pi_version: m.pi_version,
         });
-        ws.send(JSON.stringify({ type: "ready", device_id: a.id }));
+        ws.send(
+          JSON.stringify({
+            type: "ready",
+            device_id: a.id,
+            account_id: a.account,
+          }),
+        );
         return;
       }
       if (m.type !== "result" || typeof m.request_id !== "string")
@@ -171,15 +188,16 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
     this.fail(ws);
     ws.close(1011, "Device error");
   }
-  list() {
-    const online = this.sockets();
-    const devices = this.registered().map((d) => {
+  async list(account: string) {
+    const online = await this.sockets();
+    const devices = (await this.registered(account)).map((d) => {
       const socket = online.find(
         (ws) => (ws.deserializeAttachment() as Attachment).id === d.device_id,
       );
       const a = socket?.deserializeAttachment() as Attachment | undefined;
       return {
         device_id: d.device_id,
+        device_name: d.device_name,
         status: a?.ready ? "online" : "offline",
         tools: a?.ready ? a.tools : d.tools,
         platform: a?.platform,
@@ -187,19 +205,26 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
       };
     });
     return {
+      account_id: account,
+      registered_count: devices.length,
       online_count: devices.filter((d) => d.status === "online").length,
       devices,
     };
   }
-  async call(id: string, name: string, args: Record<string, unknown>) {
-    const ws = this.sockets().find((ws) => {
+  async call(
+    account: string,
+    id: string,
+    name: string,
+    args: Record<string, unknown>,
+  ) {
+    const ws = (await this.sockets()).find((ws) => {
       const a = ws.deserializeAttachment() as Attachment;
-      return a.id === id && a.ready;
+      return a.account === account && a.id === id && a.ready;
     });
     if (!ws) throw Error("Target device offline or unknown; call list_devices");
     const a = ws.deserializeAttachment() as Attachment;
-    const d = this.registered().find((d) => d.device_id === id)!;
-    if (!a.tools.includes(name) || !d.tools.includes(name))
+    const d = (await this.registered(account)).find((d) => d.device_id === id)!;
+    if (!a.tools.includes(name) || !(d.tools as string[]).includes(name))
       throw Error("Tool not allowed on target device");
     if ([...this.pending.values()].some((p) => p.socket === ws))
       throw Error("Device busy");
@@ -219,6 +244,7 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
         ws.send(
           JSON.stringify({
             type: "call",
+            account_id: account,
             request_id: requestId,
             device_id: id,
             name,
@@ -228,45 +254,6 @@ export class DeviceRoom extends DurableObject<RoomEnv> {
       } catch {
         this.fail(ws);
       }
-    });
-  }
-  async limit(bucket: string, max: number) {
-    return this.ctx.blockConcurrencyWhile(async () => {
-      const key = "limit:" + bucket;
-      const old = await this.ctx.storage.get<{ at: number; n: number }>(key);
-      const v =
-        old && Date.now() - old.at < 60000 ? old : { at: Date.now(), n: 0 };
-      v.n++;
-      await this.ctx.storage.put(key, v);
-      return v.n <= max;
-    });
-  }
-  async consent(auth: AuthRequest) {
-    return this.ctx.blockConcurrencyWhile(async () => {
-      const all =
-        (await this.ctx.storage.get<Record<string, any>>("consents")) ?? {};
-      for (const [id, v] of Object.entries(all))
-        if (v.expires < Date.now()) delete all[id];
-      if (Object.keys(all).length >= 64)
-        throw Error("Too many pending consents");
-      const id = crypto.randomUUID(),
-        csrf = crypto.randomUUID();
-      all[id] = { auth, csrf, expires: Date.now() + 300000 };
-      await this.ctx.storage.put("consents", all);
-      return { id, csrf };
-    });
-  }
-  async approve(id: string, csrf: string, owner: string) {
-    const valid = (await digest(owner)) === this.env.OWNER_KEY_HASH;
-    return this.ctx.blockConcurrencyWhile(async () => {
-      const all =
-        (await this.ctx.storage.get<Record<string, any>>("consents")) ?? {};
-      const r = all[id];
-      if (!valid || !r || r.csrf !== csrf || r.expires < Date.now())
-        return null;
-      delete all[id];
-      await this.ctx.storage.put("consents", all);
-      return r.auth as AuthRequest;
     });
   }
 }

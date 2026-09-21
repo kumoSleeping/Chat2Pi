@@ -23,14 +23,12 @@ import {
   requireSecureUrl,
   toolNames,
 } from "./config.js";
-import { startGateway } from "./gateway.js";
-import { startAgent } from "./agent.js";
-import { piVersion } from "./pi.js";
-import { createHash } from "node:crypto";
+import { accountCommand, loadAgents } from "./accounts.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
+    help: { type: "boolean", short: "h" },
     config: { type: "string", short: "c" },
     url: { type: "string" },
     id: { type: "string" },
@@ -39,6 +37,15 @@ const { values, positionals } = parseArgs({
     cloudflare: { type: "string" },
     unrestricted: { type: "boolean", default: false },
     port: { type: "string" },
+    account: { type: "string" },
+    name: { type: "string" },
+    credentials: { type: "string" },
+    action: { type: "string" },
+    target: { type: "string" },
+    role: { type: "string" },
+    confirmation: { type: "string" },
+    "key-file": { type: "string" },
+    bundle: { type: "string" },
   },
 });
 const configFile = resolve(values.config ?? ".local/gateway.json");
@@ -83,60 +90,13 @@ async function probeHealth(origin: string): Promise<string> {
 }
 async function main() {
   const agentDaemon = positionals[0]?.startsWith("agent-");
-  const command = agentDaemon ? positionals[0].slice(6) : positionals[0];
-  if (command === "cloud-init" || command === "cloud-add-device") {
-    if (
-      !values.config ||
-      !values.url ||
-      !values.id ||
-      !values.workspace ||
-      !values.out
-    )
-      throw new Error(
-        "cloud-init / cloud-add-device require --config secrets-file --url gateway --id device --workspace target-path --out agent-file",
-      );
-    const out = resolve(values.out);
-    if (existsSync(out))
-      throw new Error("Agent output already exists; not overwritten");
-    if (command === "cloud-init" && existsSync(configFile))
-      throw new Error("Cloud config already exists; use cloud-add-device");
-    const owner = resolve(dirname(configFile), "owner-key");
-    const hash = (value: string) =>
-      createHash("sha256").update(value).digest("hex");
-    if (command === "cloud-init" && !existsSync(owner))
-      savePrivate(owner, token() + "\n");
-    const secrets =
-      command === "cloud-init"
-        ? {
-            OWNER_KEY_HASH: hash(readPrivate(owner).trim()),
-            DEVICE_CONFIG: "[]",
-          }
-        : JSON.parse(readPrivate(configFile));
-    const registrations = JSON.parse(secrets.DEVICE_CONFIG);
-    const local = device(values.id, values.workspace);
-    if (
-      registrations.some(
-        (d: { device_id: string }) => d.device_id === local.device_id,
-      )
-    )
-      throw new Error("Device ID already registered");
-    const agent = agentSchema.parse({
-      gateway_url: requireSecureUrl(values.url).origin,
-      device_token: token(),
-      device: local,
-    });
-    registrations.push({
-      device_id: local.device_id,
-      token_hash: hash(agent.device_token),
-      tools: local.tools,
-    });
-    secrets.DEVICE_CONFIG = JSON.stringify(registrations);
-    savePrivate(out, json(agent));
-    savePrivate(configFile, json(secrets));
-    console.log(
-      `Private agent config: ${out}\nCloud secret file: ${configFile}\nDeploy the cloud secrets to register this device, then start its agent. Only copy the agent config to the target computer.`,
-    );
-  } else if (command === "init") {
+  const command = values.help
+    ? "help"
+    : agentDaemon
+      ? positionals[0].slice(6)
+      : positionals[0];
+  if (await accountCommand(command, values)) return;
+  if (command === "init") {
     if (existsSync(configFile))
       throw new Error("Config already exists; not overwritten");
     if (!values.url || !values.id)
@@ -195,6 +155,8 @@ async function main() {
   } else if (command === "run") {
     const config = gatewaySchema.parse(readConfig(configFile));
     readPrivate(configFile);
+    const { startGateway } = await import("./gateway.js");
+    const { piVersion } = await import("./pi.js");
     const gateway = await startGateway(config);
     let tunnel: ChildProcess | undefined;
     let stopping = false;
@@ -227,11 +189,17 @@ async function main() {
       `Chat2Pi local gateway ready; Pi ${piVersion}; public URL ${config.public_url}/mcp (tunnel readiness is separate)`,
     );
   } else if (command === "agent") {
-    readPrivate(configFile);
-    const config = agentSchema.parse(readConfig(configFile));
-    const agent = startAgent(config);
+    const configs = loadAgents(configFile, values.credentials);
+    const { startAgent } = await import("./agent.js");
+    const agents: ReturnType<typeof startAgent>[] = [];
+    try {
+      for (const config of configs) agents.push(startAgent(config));
+    } catch (error) {
+      agents.forEach((agent) => agent.close());
+      throw error;
+    }
     const stop = () => {
-      agent.close();
+      agents.forEach((agent) => agent.close());
       process.exit(0);
     };
     process.on("SIGINT", stop);
@@ -241,9 +209,10 @@ async function main() {
       throw new Error(
         "On Windows use run / agent in the foreground or your system service manager",
       );
-    const agentConfig = agentDaemon
-      ? agentSchema.parse(readConfig(configFile))
+    const agentConfigs = agentDaemon
+      ? loadAgents(configFile, values.credentials)
       : undefined;
+    const agentConfig = agentConfigs?.[0];
     const config = agentConfig
       ? undefined
       : gatewaySchema.parse(readConfig(configFile));
@@ -254,7 +223,7 @@ async function main() {
     if (command === "status") {
       if (agentConfig) {
         console.log(
-          `Device agent: ${daemonState() ? "running" : "stopped"}\nDevice: ${agentConfig.device.device_id}\nLog: ${configFile}.log\nUse list_devices in ChatGPT to verify online status.`,
+          `Device agent: ${daemonState() ? "running" : "stopped"}\nBindings: ${agentConfigs!.map((c) => `${c.account_id ?? "legacy"}/${c.device.device_id}`).join(", ")}\nLog: ${configFile}.log\nUse list_devices in ChatGPT to verify online status.`,
         );
         return;
       }
@@ -298,7 +267,15 @@ async function main() {
         const log = openSync(configFile + ".log", "a", 0o600);
         const child = spawn(
           process.execPath,
-          [cli, agentDaemon ? "agent" : "run", "--config", configFile],
+          [
+            cli,
+            agentDaemon ? "agent" : "run",
+            "--config",
+            configFile,
+            ...(values.credentials
+              ? ["--credentials", resolve(values.credentials)]
+              : []),
+          ],
           {
             detached: true,
             stdio: ["ignore", log, log],
@@ -344,7 +321,7 @@ async function main() {
     }
   } else {
     console.log(
-      `Chat2Pi — one plugin, multiple computers\n\ncloud-init | cloud-add-device --config cloud-secrets.json --url https://host --id computer --workspace target-path --out agent.json [--unrestricted]\nagent-start | agent-stop | agent-restart | agent-status --config agent.json\n\nLegacy local gateway:\ninit --url https://host --id computer [--workspace path] [--unrestricted] [--cloudflare path]\nadd-device --id computer --workspace /path/on/target [--out file] [--unrestricted]\nstart | stop | restart | status\nrun                 foreground gateway + optional Cloudflare tunnel\nagent --config file foreground device client\n\nAll commands accept --config file (default .local/gateway.json).\nPi versions are not restricted. npm update installs the currently available release.`,
+      `Chat2Pi — one plugin, multiple computers\n\nbootstrap --url https://host --account admin --key-file bootstrap-key --out login.json\nmanage --credentials login.json --action me|list_accounts|create_account|bind_device|list_devices|set_role|disable_account|enable_account|unbind_device|rotate_login [--target account] [--id device] [--role admin|member] [--confirmation id]\nclaim --url claim-link --out bundle.json\ndevice-import --bundle bundle.json --config binding.json --workspace path [--unrestricted]\nagent --config binding.json [--credentials local.json]\nconfig-check --config binding.json\n\nBackground agent:\nagent-start | agent-stop | agent-restart | agent-status --config agent.json\n\nLegacy local gateway:\ninit --url https://host --id computer [--workspace path] [--unrestricted] [--cloudflare path]\nadd-device --id computer --workspace /path/on/target [--out file] [--unrestricted]\nstart | stop | restart | status\nrun                 foreground gateway + optional Cloudflare tunnel\nagent --config file foreground device client\n\nAll commands accept --config file (default .local/gateway.json).\nPi versions are not restricted. npm update installs the currently available release.`,
     );
   }
 }

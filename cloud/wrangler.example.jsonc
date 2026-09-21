@@ -4,7 +4,6 @@
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
-  "routes": [{ "pattern": "chat2pi.kumo.ltd", "custom_domain": true }],
   "observability": { "enabled": false },
   "durable_objects": {
     "bindings": [
@@ -17,7 +16,7 @@
     { "tag": "v2", "new_sqlite_classes": ["Directory"] },
   ],
   "kv_namespaces": [
-    { "binding": "OAUTH_KV", "id": "f747766594ec42ee9838edaf112bae71" },
+    { "binding": "OAUTH_KV", "id": "REPLACE_WITH_YOUR_KV_NAMESPACE_ID" },
   ],
-  "vars": { "PUBLIC_URL": "https://chat2pi.kumo.ltd" },
+  "vars": { "PUBLIC_URL": "https://YOUR-WORKER.YOUR-SUBDOMAIN.workers.dev" },
 }

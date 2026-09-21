@@ -1,7 +1,7 @@
 {
   "name": "chat2pi",
-  "version": "0.3.0",
-  "description": "One personal ChatGPT plugin, multiple Pi computers",
+  "version": "0.4.0",
+  "description": "Self-hosted ChatGPT access to local Pi tools with account and device isolation",
   "type": "module",
   "bin": {
     "chat2pi": "build/cli.js"
@@ -10,15 +10,23 @@
     "build",
     "examples",
     "README.md",
-    "docs"
+    "docs",
+    "cloud/*.ts",
+    "cloud/catalog.json",
+    "cloud/package.json",
+    "cloud/package-lock.json",
+    "cloud/wrangler.example.jsonc",
+    "ts/manifest.ts"
   ],
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "build": "tsc",
     "test": "tsx --test tests-ts/*.test.ts",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "prepare": "npm run build",
+    "test:cloud": "npm --prefix cloud test"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "*",
@@ -36,5 +44,9 @@
     "prettier": "^3.9.8",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kumoSleeping/Chat2Pi.git"
   }
 }

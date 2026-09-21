@@ -1,0 +1,19 @@
+name: Test
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm ci --prefix cloud
+      - run: npx tsc -p cloud/tsconfig.json
+      - run: npm run test:cloud
+      - run: npm pack

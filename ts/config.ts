@@ -21,7 +21,7 @@ export const toolNames = [
 ] as const;
 export const deviceId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
 const secret = z.string().min(32).max(256);
-const device = z
+export const deviceSchema = z
   .object({
     device_id: deviceId,
     workspace: z.string(),
@@ -53,7 +53,8 @@ export const agentSchema = z
         );
       }, "proxy_url must be an HTTP(S) proxy origin")
       .optional(),
-    device,
+    device: deviceSchema,
+    account_id: deviceId.optional(),
   })
   .strict();
 export const gatewaySchema = z
@@ -62,7 +63,7 @@ export const gatewaySchema = z
     port: z.number().int().min(1024).max(65535).default(8787),
     owner_key_file: z.string(),
     oauth_state_file: z.string(),
-    local_device: device.optional(),
+    local_device: deviceSchema.optional(),
     devices: z
       .array(
         z
@@ -90,7 +91,7 @@ export const gatewaySchema = z
         message: "Each device needs a unique token",
       });
   });
-export type Device = z.infer<typeof device>;
+export type Device = z.infer<typeof deviceSchema>;
 export type GatewayConfig = z.infer<typeof gatewaySchema>;
 export type AgentConfig = z.infer<typeof agentSchema>;
 export function readConfig(path: string): unknown {
