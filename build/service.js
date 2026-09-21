@@ -10,7 +10,7 @@ import { migrateHome } from "./migration.js";
 import { loadAgents } from "./accounts.js";
 import { bindingFiles } from "./home-store.js";
 import { readPrivate, savePrivate, token, secureEqual } from "./config.js";
-import { log, colorizeLog } from "./log.js";
+import { log, formatLogLine } from "./log.js";
 const statePath = (home) => join(home, "runtime", "service.json");
 function state(home) {
     let s;
@@ -318,10 +318,15 @@ export async function serviceCommand(command, home, background = false) {
     const display = (text, flush = false) => {
         const lines = (pendingLine + text).split("\n");
         pendingLine = lines.pop() ?? "";
-        for (const line of lines)
-            process.stdout.write(colorizeLog(line) + "\n");
+        for (const line of lines) {
+            const output = formatLogLine(line);
+            if (output !== undefined)
+                process.stdout.write(output + "\n");
+        }
         if (flush && pendingLine) {
-            process.stdout.write(colorizeLog(pendingLine));
+            const output = formatLogLine(pendingLine);
+            if (output !== undefined)
+                process.stdout.write(output);
             pendingLine = "";
         }
     };

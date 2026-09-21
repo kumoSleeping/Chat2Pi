@@ -1,3 +1,6 @@
+import { homedir } from "node:os";
+import { isAbsolute, relative, sep } from "node:path";
+
 // Keep the on-disk log plain, bounded and safe to render in a terminal.
 const secretKey =
   /password|passwd|secret|token|authorization|cookie|api[-_]?key|device[-_]?key|login[-_]?key/i;
@@ -63,30 +66,119 @@ export function argumentPreview(args: Record<string, unknown>): string {
     1000,
   );
 }
+function shortPath(value: string, workspace: string): string {
+  if (!isAbsolute(value)) return value;
+  const local = relative(workspace, value);
+  if (!local) return ".";
+  if (!isAbsolute(local) && local !== ".." && !local.startsWith(".." + sep))
+    return local;
+  const home = homedir();
+  return value.startsWith(home + sep) ? "~" + value.slice(home.length) : value;
+}
+
+export function operationSummary(
+  name: string,
+  args: Record<string, unknown>,
+  workspace: string,
+): string {
+  let detail: string;
+  if (name === "bash") {
+    detail = String(args.command ?? "")
+      .replaceAll(workspace + sep, "." + sep)
+      .replaceAll(homedir() + sep, "~" + sep);
+    // Environment assignments are context, not the command the user is watching.
+    detail = detail.replace(
+      /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]+)\s+)+/,
+      "",
+    );
+  } else {
+    detail = shortPath(
+      typeof args.path === "string" ? args.path : ".",
+      workspace,
+    );
+    if (typeof args.pattern === "string")
+      detail += ` · ${preview(args.pattern, 60)}`;
+    if (name === "read" && typeof args.offset === "number")
+      detail += `:${args.offset}`;
+  }
+  return `${preview(name, 24)}  ${preview(detail, 100)}`;
+}
+
+// Pi appends command failure/timeout status after captured output.
+export function errorSummary(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  const lastLine =
+    text
+      .trim()
+      .split(/\r?\n/)
+      .filter((line) => line.trim())
+      .at(-1) ?? "Tool failed";
+  return preview(lastLine, 240);
+}
+
 type Level = "INFO" | "QUEUE" | "START" | "OK" | "WARN" | "ERROR";
-export function log(level: Level, message: string) {
-  const line = `${new Date().toISOString()} [${level}] ${preview(message, 1800)}`;
+export function log(level: Level, message: string, details?: string) {
+  // A tab separates optional diagnostics from the concise human-facing message.
+  const line = `${new Date().toISOString()} [${level}] ${preview(message, 600)}${details ? "\t" + preview(details, 1800) : ""}`;
   if (level === "ERROR") console.error(line);
   else console.log(line);
 }
-export function colorizeLog(line: string): string {
+
+const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+function fitLine(text: string, columns: number): string {
+  let width = 0;
+  let result = "";
+  for (const { segment } of segmenter.segment(text)) {
+    // CJK and emoji generally occupy two terminal cells; combining marks stay
+    // attached to their base character so truncation cannot split a glyph.
+    const wide =
+      /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Extended_Pictographic}\uFF01-\uFF60\uFFE0-\uFFE6]/u.test(
+        segment,
+      );
+    width += wide ? 2 : 1;
+    if (width > columns - 1) return result + "…";
+    result += segment;
+  }
+  return result;
+}
+
+export function formatLogLine(line: string): string | undefined {
+  const match = /^(\S+) \[(INFO|QUEUE|START|OK|WARN|ERROR)\] (.*)$/.exec(
+    line.split("\t", 1)[0],
+  );
+  if (!match) return line;
+  const [, timestamp, level, message] = match;
+  if (level === "OK") return;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return line;
+  const time = [date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map((n) => String(n).padStart(2, "0"))
+    .join(":");
+  const marks: Record<string, string> = {
+    INFO: "·",
+    QUEUE: "…",
+    START: "→",
+    WARN: "!",
+    ERROR: "✗",
+  };
+  const text = `${time} ${marks[level]} ${message}`;
+  // Errors retain their reason even if it needs another terminal line.
+  const output =
+    level === "ERROR" || level === "WARN"
+      ? text
+      : fitLine(text, Math.max(20, (process.stdout.columns ?? 100) - 1));
   if (
     !process.stdout.isTTY ||
     process.env.NO_COLOR !== undefined ||
     process.env.TERM === "dumb"
   )
-    return line;
-  const colors: Record<Level, number> = {
+    return output;
+  const colors: Record<string, number> = {
     INFO: 36,
     QUEUE: 35,
     START: 34,
-    OK: 32,
     WARN: 33,
     ERROR: 31,
   };
-  return line.replace(
-    /^(\S+) \[(INFO|QUEUE|START|OK|WARN|ERROR)\](.*)$/,
-    (_, time, level: Level, body) =>
-      `\x1b[90m${time}\x1b[0m \x1b[1;${colors[level]}m[${level}]\x1b[0m${body}`,
-  );
+  return `\x1b[90m${output.slice(0, 8)}\x1b[0m \x1b[${colors[level]}m${output.slice(9, 10)}\x1b[0m${output.slice(10)}`;
 }

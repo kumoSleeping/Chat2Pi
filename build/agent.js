@@ -2,7 +2,7 @@ import { WebSocket } from "ws";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { z } from "zod";
 import { Runner } from "./runner.js";
-import { log, preview, argumentPreview } from "./log.js";
+import { log, preview, argumentPreview, operationSummary, errorSummary, } from "./log.js";
 import { makeTools, piVersion } from "./pi.js";
 import { DEFAULT_MAX_CONCURRENT, requireSecureUrl, } from "./config.js";
 const cancelSchema = z
@@ -76,6 +76,7 @@ export function startAgent(config) {
             }
             let requestId;
             let operation = config.device.device_id;
+            let summary = "工具调用";
             const startedAt = performance.now();
             const elapsed = () => `${((performance.now() - startedAt) / 1000).toFixed(2)}s`;
             try {
@@ -84,7 +85,8 @@ export function startAgent(config) {
                     message.device_id === config.device.device_id &&
                     message.account_id === config.account_id) {
                     delay = 1000;
-                    log("OK", `Device online: ${config.device.device_id}${config.account_id ? ` (account: ${config.account_id})` : ""} workspace=${preview(config.device.workspace, 240)} timeout=${config.device.timeout_seconds}s max_concurrent=${config.device.max_concurrent ?? DEFAULT_MAX_CONCURRENT} tools=${config.device.tools.join(",")}`);
+                    log("INFO", `Device online: ${config.device.device_id}`, `account=${config.account_id ?? "local"} workspace=${preview(config.device.workspace, 240)} timeout=${config.device.timeout_seconds}s max_concurrent=${config.device.max_concurrent ?? DEFAULT_MAX_CONCURRENT} tools=${config.device.tools.join(",")}`);
+                    log("INFO", `工作目录：${preview(config.device.workspace, 240)}`);
                     return;
                 }
                 if (message.type === "cancel") {
@@ -98,6 +100,7 @@ export function startAgent(config) {
                     return;
                 }
                 requestId = call.request_id;
+                summary = operationSummary(call.name, call.arguments, config.device.workspace);
                 if (call.account_id !== config.account_id)
                     throw new Error("Wrong account; refused before execution");
                 operation = `${config.account_id ?? "local"}/${config.device.device_id}/${call.name} #${requestId.slice(0, 8)}`;
@@ -106,8 +109,8 @@ export function startAgent(config) {
                 const details = `cwd=${preview(config.device.workspace, 240)} budget=${config.device.timeout_seconds}s | ${argumentPreview(call.arguments)}`;
                 const result = await runner.call(call.device_id, call.name, call.arguments, {
                     signal: controller.signal,
-                    onQueued: (ahead) => log("QUEUE", `${operation} ahead=${ahead} | ${details}`),
-                    onStart: (waitMs) => log("START", `${operation} wait=${(waitMs / 1000).toFixed(2)}s | ${details}`),
+                    onQueued: (ahead) => log("QUEUE", `排队中 · ${summary}`, `${operation} ahead=${ahead} | ${details}`),
+                    onStart: (waitMs) => log("START", summary, `${operation} wait=${(waitMs / 1000).toFixed(2)}s | ${details}`),
                 });
                 const payload = JSON.stringify({
                     type: "result",
@@ -119,13 +122,13 @@ export function startAgent(config) {
                 if (connection.readyState === WebSocket.OPEN) {
                     connection.send(payload);
                     const detail = result.isError
-                        ? preview(result.content?.find((item) => item.type === "text")
-                            ?.text ?? "Tool returned an error", 300)
+                        ? String(result.content?.find((item) => item.type === "text")
+                            ?.text ?? "Tool returned an error")
                         : `result=${Buffer.byteLength(payload)}B`;
-                    log(result.isError ? "ERROR" : "OK", `${operation} duration=${elapsed()} | ${detail}`);
+                    log(result.isError ? "ERROR" : "OK", result.isError ? `${summary} · ${errorSummary(detail)}` : summary, `${operation} duration=${elapsed()} | ${preview(detail, 500)}`);
                 }
                 else {
-                    log("WARN", `${operation} duration=${elapsed()} | Completed but connection closed; result not sent`);
+                    log("WARN", `${summary} · 已完成，但连接断开，结果未送达`, `${operation} duration=${elapsed()} | Completed but connection closed; result not sent`);
                 }
             }
             catch (error) {
@@ -133,7 +136,7 @@ export function startAgent(config) {
                     connection.close(1008, "Invalid call");
                     return;
                 }
-                log("ERROR", `${operation} duration=${elapsed()} | ${preview(error instanceof Error ? error.message : "Tool failed", 500)}`);
+                log("ERROR", `${summary} · ${errorSummary(error)}`, `${operation} duration=${elapsed()} | ${preview(error instanceof Error ? error.message : "Tool failed", 500)}`);
                 if (connection.readyState === WebSocket.OPEN)
                     connection.send(JSON.stringify({
                         type: "result",
@@ -149,14 +152,14 @@ export function startAgent(config) {
             }
         });
         connection.on("error", (error) => {
-            log("ERROR", `Device ${config.device.device_id}: connection failed (${error.code ?? "WebSocket handshake/network error"}); check network, server and device credentials.`);
+            log("ERROR", `连接失败：${error.code ?? "请检查网络、服务地址和设备凭证"}`, `Device ${config.device.device_id}: connection failed (${error.code ?? "WebSocket handshake/network error"}); check network, server and device credentials.`);
         });
         connection.on("close", (code, reason) => {
             clearTimeout(heartbeat);
             clearInterval(keepalive);
             runner.close();
             if (!stopped) {
-                log("WARN", `Device ${config.device.device_id}: connection lost code=${code} reason=${preview(reason.toString() || "none")} reconnect≈${(delay / 1000).toFixed(1)}s (operations are never replayed).`);
+                log("WARN", `连接断开，约 ${(delay / 1000).toFixed(0)} 秒后重连`, `Device ${config.device.device_id}: connection lost code=${code} reason=${preview(reason.toString() || "none")} reconnect≈${(delay / 1000).toFixed(1)}s (operations are never replayed).`);
                 reconnect = setTimeout(connect, delay + Math.random() * 500);
                 delay = Math.min(delay * 2, 30_000);
             }
