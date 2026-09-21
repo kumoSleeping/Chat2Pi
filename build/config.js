@@ -13,6 +13,13 @@ export const toolNames = [
 ];
 export const deviceId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
 const secret = z.string().min(32).max(256);
+export const DEFAULT_MAX_CONCURRENT = 16;
+export const maxConcurrentSchema = z
+    .number()
+    .int()
+    .safe()
+    .min(1)
+    .default(DEFAULT_MAX_CONCURRENT);
 export const deviceSchema = z
     .object({
     device_id: deviceId,
@@ -21,6 +28,7 @@ export const deviceSchema = z
     // Workspace mode checks file paths and does not permit arbitrary shell commands.
     access: z.enum(["workspace", "unrestricted"]).default("workspace"),
     timeout_seconds: z.number().int().min(1).max(300).default(300),
+    max_concurrent: maxConcurrentSchema,
     shell_path: z.string().min(1).optional(),
 })
     .strict()

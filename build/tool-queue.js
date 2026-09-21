@@ -1,12 +1,20 @@
-// One FIFO per device connection. Waiting and execution share one deadline.
+// Bounded parallel execution per connection, with FIFO overflow.
+// Waiting and execution share one deadline; cancellation is per call.
 export class ToolQueue {
+    maxConcurrent;
     waiting = [];
-    active;
+    active = new Set();
+    constructor(maxConcurrent) {
+        this.maxConcurrent = maxConcurrent;
+        if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1)
+            throw new Error("max_concurrent must be a positive safe integer");
+    }
     close() {
         const waiting = this.waiting.splice(0);
         for (const entry of waiting)
             entry.cancel();
-        this.active?.abort(new Error("Device disconnected; operation cancelled. Side effects may have occurred."));
+        for (const controller of [...this.active])
+            controller.abort(new Error("Device disconnected; operation cancelled. Side effects may have occurred."));
     }
     run(task, options) {
         return new Promise((resolve, reject) => {
@@ -43,7 +51,7 @@ export class ToolQueue {
                     if (controller.signal.aborted)
                         return;
                     started = true;
-                    this.active = controller;
+                    this.active.add(controller);
                     // Keep the slot until execution has actually stopped, even on abort.
                     void (async () => {
                         try {
@@ -58,7 +66,7 @@ export class ToolQueue {
                         finally {
                             settled = true;
                             clean();
-                            this.active = undefined;
+                            this.active.delete(controller);
                             this.drain();
                         }
                     })();
@@ -70,10 +78,11 @@ export class ToolQueue {
                 cancel();
                 return;
             }
-            const ahead = this.waiting.length + (this.active ? 1 : 0);
+            const ahead = this.waiting.length + this.active.size;
+            const mustWait = this.waiting.length > 0 || this.active.size >= this.maxConcurrent;
             this.waiting.push(entry);
             try {
-                if (ahead)
+                if (mustWait)
                     options.onQueued?.(ahead);
             }
             catch (error) {
@@ -83,7 +92,7 @@ export class ToolQueue {
         });
     }
     drain() {
-        while (!this.active && this.waiting.length)
+        while (this.active.size < this.maxConcurrent && this.waiting.length)
             this.waiting.shift().start();
     }
 }

@@ -21,6 +21,7 @@ import {
 import {
   token,
   agentSchema,
+  maxConcurrentSchema,
   readPrivate,
   savePrivate,
   requireSecureUrl,
@@ -38,6 +39,7 @@ export const localCredentialsSchema = z
         access: z.enum(["workspace", "unrestricted"]),
         tools: z.array(toolName).min(1),
         timeout_seconds: z.number().int().min(1).max(300).default(300),
+        max_concurrent: maxConcurrentSchema,
         shell_path: z.string().optional(),
       })
       .strict(),

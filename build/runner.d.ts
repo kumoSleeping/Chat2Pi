@@ -1,4 +1,4 @@
-import type { Device } from "./config.js";
+import { type Device } from "./config.js";
 import { type QueueOptions } from "./tool-queue.js";
 export declare class Runner {
     readonly device: Device;

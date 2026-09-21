@@ -9,18 +9,21 @@ export declare const localCredentialsSchema: z.ZodObject<{
         access: z.ZodEnum<["workspace", "unrestricted"]>;
         tools: z.ZodArray<z.ZodEnum<["read", "write", "edit", "ls", "find", "grep", "bash"]>, "many">;
         timeout_seconds: z.ZodDefault<z.ZodNumber>;
+        max_concurrent: z.ZodDefault<z.ZodNumber>;
         shell_path: z.ZodOptional<z.ZodString>;
     }, "strict", z.ZodTypeAny, {
         workspace: string;
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     }, {
         workspace: string;
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds?: number | undefined;
+        max_concurrent?: number | undefined;
         shell_path?: string | undefined;
     }>;
 }, "strict", z.ZodTypeAny, {
@@ -30,6 +33,7 @@ export declare const localCredentialsSchema: z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     };
     proxy_url?: string | undefined;
@@ -40,6 +44,7 @@ export declare const localCredentialsSchema: z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds?: number | undefined;
+        max_concurrent?: number | undefined;
         shell_path?: string | undefined;
     };
     proxy_url?: string | undefined;
@@ -78,18 +83,21 @@ export declare const deviceBundleSchema: z.ZodObject<{
         access: z.ZodEnum<["workspace", "unrestricted"]>;
         tools: z.ZodArray<z.ZodEnum<["read", "write", "edit", "ls", "find", "grep", "bash"]>, "many">;
         timeout_seconds: z.ZodDefault<z.ZodNumber>;
+        max_concurrent: z.ZodDefault<z.ZodNumber>;
         shell_path: z.ZodOptional<z.ZodString>;
     }, "strict", z.ZodTypeAny, {
         workspace: string;
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     }, {
         workspace: string;
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds?: number | undefined;
+        max_concurrent?: number | undefined;
         shell_path?: string | undefined;
     }>>;
     proxy_url: z.ZodOptional<z.ZodEffects<z.ZodString, string, string>>;
@@ -111,6 +119,7 @@ export declare const deviceBundleSchema: z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     } | undefined;
 }, {
@@ -131,6 +140,7 @@ export declare const deviceBundleSchema: z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds?: number | undefined;
+        max_concurrent?: number | undefined;
         shell_path?: string | undefined;
     } | undefined;
 }>;
@@ -172,6 +182,7 @@ export declare function prepareDeviceBundle(raw: unknown, o?: Pick<AccountOption
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     };
     proxy_url?: string | undefined;

@@ -6,7 +6,7 @@ import { resolve, join } from "node:path";
 import { homeDirectory, loginPath, selectLogin } from "./home-store.js";
 import { z } from "zod";
 import { bindingSchema, identifier, manageSchema, toolName, } from "./manifest.js";
-import { token, agentSchema, readPrivate, savePrivate, requireSecureUrl, } from "./config.js";
+import { token, agentSchema, maxConcurrentSchema, readPrivate, savePrivate, requireSecureUrl, } from "./config.js";
 export const hash = (value) => createHash("sha256").update(value).digest("hex");
 export const localCredentialsSchema = z
     .object({
@@ -18,6 +18,7 @@ export const localCredentialsSchema = z
         access: z.enum(["workspace", "unrestricted"]),
         tools: z.array(toolName).min(1),
         timeout_seconds: z.number().int().min(1).max(300).default(300),
+        max_concurrent: maxConcurrentSchema,
         shell_path: z.string().optional(),
     })
         .strict(),

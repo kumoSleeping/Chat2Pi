@@ -1,10 +1,12 @@
 import { fork, execFileSync } from "node:child_process";
+import { DEFAULT_MAX_CONCURRENT } from "./config.js";
 import { ToolQueue } from "./tool-queue.js";
 export class Runner {
     device;
-    queue = new ToolQueue();
+    queue;
     constructor(device) {
         this.device = device;
+        this.queue = new ToolQueue(device.max_concurrent ?? DEFAULT_MAX_CONCURRENT);
     }
     close() {
         this.queue.close();

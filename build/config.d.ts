@@ -1,12 +1,15 @@
 import { z } from "zod";
 export declare const toolNames: readonly ["read", "write", "edit", "ls", "find", "grep", "bash"];
 export declare const deviceId: z.ZodString;
+export declare const DEFAULT_MAX_CONCURRENT = 16;
+export declare const maxConcurrentSchema: z.ZodDefault<z.ZodNumber>;
 export declare const deviceSchema: z.ZodEffects<z.ZodObject<{
     device_id: z.ZodString;
     workspace: z.ZodString;
     tools: z.ZodArray<z.ZodEnum<["read", "write", "edit", "ls", "find", "grep", "bash"]>, "many">;
     access: z.ZodDefault<z.ZodEnum<["workspace", "unrestricted"]>>;
     timeout_seconds: z.ZodDefault<z.ZodNumber>;
+    max_concurrent: z.ZodDefault<z.ZodNumber>;
     shell_path: z.ZodOptional<z.ZodString>;
 }, "strict", z.ZodTypeAny, {
     device_id: string;
@@ -14,6 +17,7 @@ export declare const deviceSchema: z.ZodEffects<z.ZodObject<{
     tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
     access: "workspace" | "unrestricted";
     timeout_seconds: number;
+    max_concurrent: number;
     shell_path?: string | undefined;
 }, {
     device_id: string;
@@ -21,6 +25,7 @@ export declare const deviceSchema: z.ZodEffects<z.ZodObject<{
     tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
     access?: "workspace" | "unrestricted" | undefined;
     timeout_seconds?: number | undefined;
+    max_concurrent?: number | undefined;
     shell_path?: string | undefined;
 }>, {
     device_id: string;
@@ -28,6 +33,7 @@ export declare const deviceSchema: z.ZodEffects<z.ZodObject<{
     tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
     access: "workspace" | "unrestricted";
     timeout_seconds: number;
+    max_concurrent: number;
     shell_path?: string | undefined;
 }, {
     device_id: string;
@@ -35,6 +41,7 @@ export declare const deviceSchema: z.ZodEffects<z.ZodObject<{
     tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
     access?: "workspace" | "unrestricted" | undefined;
     timeout_seconds?: number | undefined;
+    max_concurrent?: number | undefined;
     shell_path?: string | undefined;
 }>;
 export declare const agentSchema: z.ZodObject<{
@@ -47,6 +54,7 @@ export declare const agentSchema: z.ZodObject<{
         tools: z.ZodArray<z.ZodEnum<["read", "write", "edit", "ls", "find", "grep", "bash"]>, "many">;
         access: z.ZodDefault<z.ZodEnum<["workspace", "unrestricted"]>>;
         timeout_seconds: z.ZodDefault<z.ZodNumber>;
+        max_concurrent: z.ZodDefault<z.ZodNumber>;
         shell_path: z.ZodOptional<z.ZodString>;
     }, "strict", z.ZodTypeAny, {
         device_id: string;
@@ -54,6 +62,7 @@ export declare const agentSchema: z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     }, {
         device_id: string;
@@ -61,6 +70,7 @@ export declare const agentSchema: z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access?: "workspace" | "unrestricted" | undefined;
         timeout_seconds?: number | undefined;
+        max_concurrent?: number | undefined;
         shell_path?: string | undefined;
     }>, {
         device_id: string;
@@ -68,6 +78,7 @@ export declare const agentSchema: z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     }, {
         device_id: string;
@@ -75,6 +86,7 @@ export declare const agentSchema: z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access?: "workspace" | "unrestricted" | undefined;
         timeout_seconds?: number | undefined;
+        max_concurrent?: number | undefined;
         shell_path?: string | undefined;
     }>;
     account_id: z.ZodOptional<z.ZodString>;
@@ -87,6 +99,7 @@ export declare const agentSchema: z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     };
     proxy_url?: string | undefined;
@@ -100,6 +113,7 @@ export declare const agentSchema: z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access?: "workspace" | "unrestricted" | undefined;
         timeout_seconds?: number | undefined;
+        max_concurrent?: number | undefined;
         shell_path?: string | undefined;
     };
     proxy_url?: string | undefined;
@@ -116,6 +130,7 @@ export declare const gatewaySchema: z.ZodEffects<z.ZodObject<{
         tools: z.ZodArray<z.ZodEnum<["read", "write", "edit", "ls", "find", "grep", "bash"]>, "many">;
         access: z.ZodDefault<z.ZodEnum<["workspace", "unrestricted"]>>;
         timeout_seconds: z.ZodDefault<z.ZodNumber>;
+        max_concurrent: z.ZodDefault<z.ZodNumber>;
         shell_path: z.ZodOptional<z.ZodString>;
     }, "strict", z.ZodTypeAny, {
         device_id: string;
@@ -123,6 +138,7 @@ export declare const gatewaySchema: z.ZodEffects<z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     }, {
         device_id: string;
@@ -130,6 +146,7 @@ export declare const gatewaySchema: z.ZodEffects<z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access?: "workspace" | "unrestricted" | undefined;
         timeout_seconds?: number | undefined;
+        max_concurrent?: number | undefined;
         shell_path?: string | undefined;
     }>, {
         device_id: string;
@@ -137,6 +154,7 @@ export declare const gatewaySchema: z.ZodEffects<z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     }, {
         device_id: string;
@@ -144,6 +162,7 @@ export declare const gatewaySchema: z.ZodEffects<z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access?: "workspace" | "unrestricted" | undefined;
         timeout_seconds?: number | undefined;
+        max_concurrent?: number | undefined;
         shell_path?: string | undefined;
     }>>;
     devices: z.ZodDefault<z.ZodArray<z.ZodObject<{
@@ -176,6 +195,7 @@ export declare const gatewaySchema: z.ZodEffects<z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     } | undefined;
     cloudflare_config?: string | undefined;
@@ -190,6 +210,7 @@ export declare const gatewaySchema: z.ZodEffects<z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access?: "workspace" | "unrestricted" | undefined;
         timeout_seconds?: number | undefined;
+        max_concurrent?: number | undefined;
         shell_path?: string | undefined;
     } | undefined;
     devices?: {
@@ -214,6 +235,7 @@ export declare const gatewaySchema: z.ZodEffects<z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access: "workspace" | "unrestricted";
         timeout_seconds: number;
+        max_concurrent: number;
         shell_path?: string | undefined;
     } | undefined;
     cloudflare_config?: string | undefined;
@@ -228,6 +250,7 @@ export declare const gatewaySchema: z.ZodEffects<z.ZodObject<{
         tools: ("read" | "write" | "edit" | "ls" | "find" | "grep" | "bash")[];
         access?: "workspace" | "unrestricted" | undefined;
         timeout_seconds?: number | undefined;
+        max_concurrent?: number | undefined;
         shell_path?: string | undefined;
     } | undefined;
     devices?: {

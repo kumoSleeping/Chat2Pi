@@ -4,7 +4,7 @@ import { z } from "zod";
 import { Runner } from "./runner.js";
 import { log, preview, argumentPreview } from "./log.js";
 import { makeTools, piVersion } from "./pi.js";
-import { requireSecureUrl } from "./config.js";
+import { DEFAULT_MAX_CONCURRENT, requireSecureUrl, } from "./config.js";
 const cancelSchema = z
     .object({
     type: z.literal("cancel"),
@@ -84,7 +84,7 @@ export function startAgent(config) {
                     message.device_id === config.device.device_id &&
                     message.account_id === config.account_id) {
                     delay = 1000;
-                    log("OK", `Device online: ${config.device.device_id}${config.account_id ? ` (account: ${config.account_id})` : ""} workspace=${preview(config.device.workspace, 240)} timeout=${config.device.timeout_seconds}s tools=${config.device.tools.join(",")}`);
+                    log("OK", `Device online: ${config.device.device_id}${config.account_id ? ` (account: ${config.account_id})` : ""} workspace=${preview(config.device.workspace, 240)} timeout=${config.device.timeout_seconds}s max_concurrent=${config.device.max_concurrent ?? DEFAULT_MAX_CONCURRENT} tools=${config.device.tools.join(",")}`);
                     return;
                 }
                 if (message.type === "cancel") {
