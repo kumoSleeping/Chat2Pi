@@ -35,6 +35,7 @@ export class Runner {
       const child = fork(new URL("./worker.js", import.meta.url), [], {
         cwd: this.device.workspace,
         detached: process.platform !== "win32",
+        windowsHide: true,
         stdio: ["ignore", "ignore", "ignore", "ipc"],
         env: {
           PATH: process.env.PATH,

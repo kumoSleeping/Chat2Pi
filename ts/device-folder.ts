@@ -89,7 +89,8 @@ export async function openDeviceFolder(home: string) {
     const child = spawn(command, [path], {
       detached: true,
       stdio: "ignore",
-      windowsHide: true,
+      // This is a user-requested GUI window, not a background tool worker.
+      windowsHide: false,
     });
     child.once("error", () =>
       reject(

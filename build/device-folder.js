@@ -75,7 +75,8 @@ export async function openDeviceFolder(home) {
         const child = spawn(command, [path], {
             detached: true,
             stdio: "ignore",
-            windowsHide: true,
+            // This is a user-requested GUI window, not a background tool worker.
+            windowsHide: false,
         });
         child.once("error", () => reject(Error(`Could not open the file manager. Open this folder manually: ${path}`)));
         child.once("spawn", () => {
