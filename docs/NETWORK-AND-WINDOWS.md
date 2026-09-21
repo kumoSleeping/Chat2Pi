@@ -89,10 +89,14 @@ TUN 模式下，客户端连接通常由系统路由接管。如果只启用了�
 |---|---|---|---|
 | 本机网关 + CF Tunnel | 网关使用 7844，其他设备使用 WSS 443 | 复用现有实现 | 已实现，本机出口未通 |
 | 常在线服务器上的网关 + HTTPS 反向代理 | 所有用户设备只用 WSS 443 | 可复用当前 Node 网关；本机休眠不影响其他电脑 | 需要服务器、TLS 反向代理与部署验证 |
-| CF Worker + Durable Object 网关 | 所有用户设备只用 WSS 443 | 不依赖某台个人电脑，也不需要 cloudflared | 架构建议，尚未实现或部署 |
+| CF Worker + Durable Object 网关 | 所有用户设备只用 WSS 443 | 不依赖某台个人电脑，也不需要 cloudflared | 完整网关尚未实现；最小 443 连接测试已通过 |
 
 若目标是便于其他个人用户自部署，优先评估最后一种：ChatGPT 的 MCP 请求到 Worker，Durable Object 维护设备连接与路由，各电脑主动连接它。Cloudflare 官方支持 Durable Object 管理 WebSocket，但仍需实现鉴权、OAuth、在线状态、请求关联、超时和断线恢复，并考虑平台额度、费用及日志数据。不保证任何地区的 443 一定直连可用，设备端显式代理仍有价值。
 
 Cloudflare Worker 不能直接运行当前依赖本地进程和文件系统的 Node/Pi 网关；这是云端部分的适配工作，不是把现有程序原样上传。Pi 工具继续留在用户电脑执行。
 
 参考：[Durable Object WebSocket](https://developers.cloudflare.com/durable-objects/best-practices/websockets/)、[Workers 限制](https://developers.cloudflare.com/workers/platform/limits/)。
+
+## 后续实测更新
+
+2026-09-21 已在保持 TUN 开启的环境完成普通 Worker 和 Durable Object 的 WSS 443 测试，系统路由与显式 HTTP 代理均通过消息往返、35 秒空闲和重连验证。见 [实测结果](WORKER-PROBE-RESULTS.md)。原 cloudflared 隧道仍未恢复，此结果验证的是替代路线。
